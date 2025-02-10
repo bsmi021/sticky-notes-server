@@ -11,7 +11,7 @@ import {
     ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import Database from 'better-sqlite3';
-import express from 'express';
+import express, { NextFunction } from 'express';
 import { WebSocketServer } from 'ws';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
@@ -21,6 +21,26 @@ import { Request, Response } from 'express';
 interface Tag {
     id: number;
     name: string;
+}
+
+// Add this interface near the top with your other interfaces
+interface TagRecord {
+    id: number;
+    name: string;
+}
+
+// Add near your other interfaces
+interface Note {
+    id: number;
+    title: string;
+    content: string;
+    conversation_id: string;
+    created_at: number;
+    updated_at: number;
+}
+
+interface CountResult {
+    count: number;
 }
 
 // Database Configuration
@@ -200,15 +220,102 @@ class StickyNotesServer {
     }
 
     private setupExpress() {
-        this.expressApp.use(express.static(join(__dirname, 'public')));
+        const publicPath = join(__dirname, 'public');
+        this.expressApp.use(express.static(publicPath));
+        this.expressApp.use(express.json());
 
+        // API Routes
         this.expressApp.get('/api/notes', (req: Request, res: Response) => {
-            // TODO: Implement API endpoint to fetch notes
-            res.send('TODO: Implement API endpoint to fetch notes');
+            try {
+                const { search, page = 1, limit = 10, tag } = req.query;
+                const offset = (Number(page) - 1) * Number(limit);
+
+                let notes: Note[] = [];
+
+                if (search) {
+                    // Full-text search using FTS5
+                    notes = preparedStatements.searchNotes.all({
+                        query: search,
+                        limit: Number(limit),
+                        offset
+                    }) as Note[];
+                } else if (tag) {
+                    // Search by tag
+                    notes = db.prepare(`
+                        SELECT DISTINCT notes.* 
+                        FROM notes
+                        JOIN note_tags ON notes.id = note_tags.note_id
+                        JOIN tags ON tags.id = note_tags.tag_id
+                        WHERE tags.name = ?
+                        ORDER BY notes.updated_at DESC
+                        LIMIT ? OFFSET ?
+                    `).all(tag, limit, offset) as Note[];
+                } else {
+                    // Regular paginated query
+                    notes = db.prepare(`
+                        SELECT * FROM notes
+                        ORDER BY updated_at DESC
+                        LIMIT ? OFFSET ?
+                    `).all(limit, offset) as Note[];
+                }
+
+                // Get total count for pagination
+                const total = (db.prepare(`
+                    SELECT COUNT(*) as count FROM notes
+                `).get() as CountResult).count;
+
+                // Add tags to notes
+                const notesWithTags = notes.map(note => {
+                    const tags = preparedStatements.getTagsByNoteId.all({ note_id: note.id });
+                    return {
+                        ...note,
+                        tags: tags.map((t: any) => t.name)
+                    };
+                });
+
+                res.json({
+                    notes: notesWithTags,
+                    pagination: {
+                        total,
+                        page: Number(page),
+                        limit: Number(limit),
+                        pages: Math.ceil(total / Number(limit))
+                    }
+                });
+            } catch (error) {
+                console.error('Error fetching notes:', error);
+                res.status(500).json({ error: 'Failed to fetch notes' });
+            }
+        });
+
+        this.expressApp.post('/api/notes', (req: Request, res: Response) => {
+            // Handle creating a new note
+            res.json({ success: true });
+        });
+
+        this.expressApp.put('/api/notes/:id', (req: Request, res: Response) => {
+            // Handle updating a note
+            res.json({ success: true });
+        });
+
+        this.expressApp.delete('/api/notes/:id', (req: Request, res: Response) => {
+            const { id } = req.params;
+            try {
+                preparedStatements.deleteNote.run({ id });
+                res.json({ success: true });
+            } catch (error) {
+                console.error('Error deleting note:', error);
+                res.status(500).json({ error: 'Failed to delete note' });
+            }
+        });
+
+        // Root route
+        this.expressApp.get('/', (req: Request, res: Response) => {
+            res.sendFile(join(publicPath, 'index.html'));
         });
 
         this.expressApp.listen(WEB_UI_PORT, () => {
-            console.error(`Web UI running on port ${WEB_UI_PORT}`);
+            console.error(`Web UI running at http://localhost:${WEB_UI_PORT}`);
         });
     }
 
@@ -384,12 +491,12 @@ class StickyNotesServer {
                             preparedStatements.deleteNoteTags.run({ note_id: id });
 
                             for (const tagName of tags) {
-                                let tagRecord = preparedStatements.getTagByName.get({ name: tagName }) as Tag;
+                                let tagRecord = preparedStatements.getTagByName.get({ name: tagName }) as TagRecord;
 
                                 // If tag doesn't exist, create it
                                 if (!tagRecord) {
                                     const result = preparedStatements.insertTag.run({ name: tagName });
-                                    tagRecord = { id: result.lastInsertRowid, name: tagName } as Tag;
+                                    tagRecord = { id: result.lastInsertRowid, name: tagName } as TagRecord;
                                 }
 
                                 // Insert note tag
