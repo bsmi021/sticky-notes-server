@@ -2,34 +2,32 @@
   "name": "sticky-notes-server",
   "version": "1.0.0",
   "description": "",
+  "type": "module",
   "main": "build/index.js",
   "scripts": {
-    "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
+    "build": "tsc",
     "postbuild": "powershell Copy-Item -Path src/public -Destination build/ -Recurse -Force",
     "start": "node build/index.js",
-    "dev": "ts-node --esm src/index.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "tsc-watch --onSuccess \"node build/index.js\"",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "migrate": "npm run build && node build/migrations/run-migrations.js",
+    "migrate:dry": "npm run build && node build/migrations/run-migrations.js --dry-run"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.4.1",
-    "better-sqlite3": "^11.8.1",
-    "express": "^4.21.2",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "tailwindcss": "^4.0.6",
-    "ws": "^8.18.0"
-  },
-  "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
     "@types/express": "^5.0.0",
     "@types/node": "^22.13.1",
-    "@types/react": "^19.0.8",
-    "@types/react-dom": "^19.0.3",
     "@types/ws": "^8.5.14",
-    "typescript": "^5.7.3"
+    "better-sqlite3": "^11.8.1",
+    "express": "^4.21.2",
+    "tsc-watch": "^6.2.1",
+    "typescript": "^5.7.3",
+    "ws": "^8.18.0"
   },
+  "devDependencies": {},
   "type": "module"
 }

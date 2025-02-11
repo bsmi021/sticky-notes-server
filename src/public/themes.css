@@ -1,0 +1,300 @@
+/* Base transitions */
+* {
+    transition: background-color 0.3s ease,
+        color 0.3s ease,
+        border-color 0.3s ease,
+        box-shadow 0.3s ease,
+        transform 0.3s ease;
+}
+
+/* Light Theme (default) */
+:root {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f3f4f6;
+    --bg-tertiary: #e5e7eb;
+
+    --text-primary: #111827;
+    --text-secondary: #374151;
+    --text-tertiary: #6b7280;
+
+    --border-primary: #e5e7eb;
+    --border-secondary: #d1d5db;
+
+    --accent-primary: #3b82f6;
+    --accent-hover: #2563eb;
+    --accent-text: #ffffff;
+
+    --danger-primary: #ef4444;
+    --danger-hover: #dc2626;
+    --danger-text: #ffffff;
+
+    --success-primary: #10b981;
+    --success-hover: #059669;
+    --success-text: #ffffff;
+
+    --note-header: rgba(0, 0, 0, 0.05);
+    --note-body: rgba(0, 0, 0, 0.02);
+    --note-text: #111827;
+    --note-text-secondary: #374151;
+
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+
+    --ring-color: var(--accent-primary);
+    --ring-offset: #ffffff;
+}
+
+/* Dark Theme */
+:root[class~="dark"] {
+    --bg-primary: #111827;
+    --bg-secondary: #1f2937;
+    --bg-tertiary: #374151;
+
+    --text-primary: #f9fafb;
+    --text-secondary: #e5e7eb;
+    --text-tertiary: #9ca3af;
+
+    --border-primary: #374151;
+    --border-secondary: #4b5563;
+
+    --accent-primary: #3b82f6;
+    --accent-hover: #60a5fa;
+    --accent-text: #ffffff;
+
+    --danger-primary: #ef4444;
+    --danger-hover: #f87171;
+    --danger-text: #ffffff;
+
+    --success-primary: #10b981;
+    --success-hover: #34d399;
+    --success-text: #ffffff;
+
+    --note-header: rgba(255, 255, 255, 0.05);
+    --note-body: rgba(255, 255, 255, 0.02);
+    --note-text: #f9fafb;
+    --note-text-secondary: #e5e7eb;
+
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+
+    --ring-color: var(--accent-primary);
+    --ring-offset: var(--bg-primary);
+}
+
+/* Apply theme variables to components */
+body {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+/* Input and form elements */
+input,
+textarea,
+select {
+    background-color: var(--bg-secondary);
+    border-color: var(--border-primary);
+    color: var(--text-primary);
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+    border-color: var(--accent-primary);
+    outline: none;
+    box-shadow: 0 0 0 2px var(--ring-color);
+    box-shadow: 0 0 0 4px var(--ring-offset);
+}
+
+/* Buttons */
+button {
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+button:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--ring-offset), 0 0 0 4px var(--ring-color);
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+button.primary {
+    background-color: var(--accent-primary);
+    color: var(--accent-text);
+    border: none;
+}
+
+button.primary:hover:not(:disabled) {
+    background-color: var(--accent-hover);
+    transform: translateY(-1px);
+}
+
+button.primary:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+button.secondary {
+    background-color: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-primary);
+}
+
+button.secondary:hover:not(:disabled) {
+    background-color: var(--bg-tertiary);
+}
+
+button.danger {
+    background-color: var(--danger-primary);
+    color: var(--danger-text);
+    border: none;
+}
+
+button.danger:hover:not(:disabled) {
+    background-color: var(--danger-hover);
+    transform: translateY(-1px);
+}
+
+button.danger:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+button.success {
+    background-color: var(--success-primary);
+    color: var(--success-text);
+    border: none;
+}
+
+button.success:hover:not(:disabled) {
+    background-color: var(--success-hover);
+    transform: translateY(-1px);
+}
+
+button.success:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+/* Note styles */
+.note {
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    box-shadow: var(--shadow-md);
+    color: var(--note-text);
+}
+
+.note.selected {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 2px var(--accent-primary);
+}
+
+.note h3 {
+    color: var(--note-text);
+}
+
+.note p {
+    color: var(--note-text-secondary);
+}
+
+.note-header {
+    background-color: var(--note-header);
+    border-bottom: 1px solid var(--border-primary);
+}
+
+.note-body {
+    background-color: var(--note-body);
+}
+
+/* Modal styles */
+.modal-overlay {
+    background-color: rgba(0, 0, 0, 0.5);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+}
+
+.modal-content {
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    box-shadow: var(--shadow-lg);
+}
+
+/* Tag styles */
+.tag {
+    background-color: var(--bg-tertiary);
+    color: var(--text-secondary);
+    transition: all 0.2s ease;
+}
+
+.tag:hover {
+    background-color: var(--accent-primary);
+    color: var(--accent-text);
+    transform: translateY(-1px);
+}
+
+/* Utility classes */
+.border-default {
+    border-color: var(--border-primary);
+}
+
+.text-default {
+    color: var(--text-primary);
+}
+
+.text-secondary {
+    color: var(--text-secondary);
+}
+
+.text-tertiary {
+    color: var(--text-tertiary);
+}
+
+.bg-default {
+    background-color: var(--bg-primary);
+}
+
+.bg-secondary {
+    background-color: var(--bg-secondary);
+}
+
+.bg-tertiary {
+    background-color: var(--bg-tertiary);
+}
+
+.shadow-default {
+    box-shadow: var(--shadow-md);
+}
+
+/* Checkbox styles */
+input[type="checkbox"] {
+    accent-color: var(--accent-primary);
+    border-color: var(--border-primary);
+    cursor: pointer;
+}
+
+/* Scrollbar styles */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--text-tertiary);
+}
+
+/* Focus styles */
+*:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--ring-offset), 0 0 0 4px var(--ring-color);
+}
