@@ -45,12 +45,13 @@ interface Note {
 interface CountResult {
     count: number;
 }
-
+const DB_ROOT = process.env.DB_ROOT || process.env.USERPROFILE || process.env.HOME || '';
 // Database Configuration
-const DB_PATH = join(process.env.USERPROFILE || process.env.HOME || '', 'Documents', 'sticky-notes.db');
+const DB_PATH = join(DB_ROOT, 'sticky-notes.db');
 
 // Express App Configuration
-const WEB_UI_PORT = 3000;
+const WEB_UI_PORT = process.env.WEB_UI_PORT ? parseInt(process.env.WEB_UI_PORT, 10) : 3000;
+const WS_PORT = process.env.WS_PORT ? parseInt(process.env.WS_PORT, 10) : 8080;
 
 // Helper function to get the directory name
 const __filename = fileURLToPath(import.meta.url);
@@ -278,7 +279,7 @@ class StickyNotesServer {
             }
         );
 
-        this.webSocketServer = new WebSocketServer({ port: 8080 });
+        this.webSocketServer = new WebSocketServer({ port: WS_PORT });
         this.expressApp = express();
 
         this.setupExpress();
@@ -331,48 +332,125 @@ class StickyNotesServer {
         const getNotes = async (req: Request, res: Response, next: NextFunction) => {
             try {
                 console.error('Starting getNotes request');
-                const { search, page = 1, limit = 10, tags, conversation } = req.query;
+                const {
+                    search,
+                    page = 1,
+                    limit = 10,
+                    tags,
+                    conversation,
+                    color,
+                    startDate,
+                    sort = 'updated_at DESC'
+                } = req.query;
                 const offset = (Number(page) - 1) * Number(limit);
 
-                // Use a transaction for consistency
-                const transaction = db.transaction(() => {
-                    // Base query for all cases
-                    let baseQuery = 'SELECT DISTINCT notes.* FROM notes';
-                    let params: any[] = [];
+                console.error('Query parameters:', {
+                    search,
+                    page,
+                    limit,
+                    tags,
+                    conversation,
+                    color,
+                    startDate,
+                    sort
+                });
 
-                    // Add joins and conditions for tag filtering
+                const transaction = db.transaction(() => {
+                    // Base query with all necessary joins
+                    let baseQuery = 'SELECT notes.* FROM notes';
+                    const params: any[] = [];
+                    const conditions: string[] = [];
+
+                    // Handle tag filtering
                     if (tags) {
-                        const tagArray = Array.isArray(tags) ? tags : [tags];
+                        let tagArray: string[];
+
+                        if (typeof tags === 'string') {
+                            // If tags is a string, convert it to an array
+                            tagArray = [tags];
+                        } else if (Array.isArray(tags)) {
+                            // If tags is already an array, ensure all elements are strings
+                            tagArray = tags.map(tag => String(tag));
+                        } else {
+                            // Handle unexpected tag format
+                            console.error("Unexpected tags format:", tags);
+                            tagArray = [];
+                        }
+
                         if (tagArray.length > 0) {
-                            baseQuery += `
-                                JOIN note_tags ON notes.id = note_tags.note_id
-                                JOIN tags ON note_tags.tag_id = tags.id
-                                WHERE tags.name IN (${tagArray.map(() => '?').join(',')})
-                                GROUP BY notes.id
-                                HAVING COUNT(DISTINCT tags.name) = ?
+                            const existsSubquery = `
+                                EXISTS (
+                                    SELECT 1
+                                    FROM note_tags
+                                    JOIN tags ON note_tags.tag_id = tags.id
+                                    WHERE note_tags.note_id = notes.id
+                                    AND tags.name IN (${tagArray.map(() => '?').join(', ')})
+                                )
                             `;
-                            params.push(...tagArray, tagArray.length);
+                            conditions.push(existsSubquery);
+                            params.push(...tagArray);
                         }
                     }
 
-                    // Handle conversation filter
-                    if (conversation) {
-                        baseQuery += params.length === 0 ? ' WHERE' : ' AND';
-                        baseQuery += ' conversation_id = ?';
-                        params.push(conversation);
+                    // Simple equality filters
+                    if (typeof conversation === 'string' && conversation.trim()) {
+                        conditions.push('notes.conversation_id = ?');
+                        params.push(conversation.trim());
                     }
 
-                    // Add ordering and pagination
-                    baseQuery += ' ORDER BY notes.updated_at DESC LIMIT ? OFFSET ?';
+                    if (typeof color === 'string' && color.trim()) {
+                        conditions.push('notes.color_hex = ?');
+                        params.push(color.trim());
+                    }
+
+                    // Date filter
+                    if (startDate) {
+                        conditions.push('notes.created_at >= ?');
+                        params.push(startDate);
+                    }
+
+                    // Search filter
+                    if (typeof search === 'string' && search.trim()) {
+                        conditions.push('(notes.title LIKE ? OR notes.content LIKE ?)');
+                        const searchTerm = `%${search.trim()}%`;
+                        params.push(searchTerm, searchTerm);
+                    }
+
+                    // Add WHERE clause if we have conditions
+                    if (conditions.length > 0) {
+                        baseQuery += ' WHERE ' + conditions.join(' AND ');
+                    }
+
+                    // Handle sorting
+                    const validSortFields = ['title', 'updated_at', 'created_at', 'color_hex', 'conversation_id'];
+                    const validSortDirections = ['ASC', 'DESC'];
+
+                    let sortField = 'updated_at';
+                    let sortDirection = 'DESC';
+
+                    if (typeof sort === 'string') {
+                        const [field, direction] = sort.split(' ');
+                        if (field && validSortFields.includes(field.toLowerCase())) {
+                            sortField = field.toLowerCase();
+                        }
+                        if (direction && validSortDirections.includes(direction.toUpperCase())) {
+                            sortDirection = direction.toUpperCase();
+                        }
+                    }
+
+                    // Add sorting and pagination
+                    baseQuery += ` ORDER BY notes.${sortField} ${sortDirection} LIMIT ? OFFSET ?`;
                     params.push(Number(limit), offset);
 
-                    console.error('Executing main query:', baseQuery, 'with params:', params);
-                    const notes = db.prepare(baseQuery).all(...params) as Note[];
-                    console.error('Got notes:', notes.length);
+                    // Log the final query and parameters
+                    console.error('Query:', baseQuery);
+                    console.error('Parameters:', params);
 
-                    // If no notes, return early
+                    // Execute the query
+                    const notes = db.prepare(baseQuery).all(...params) as Note[];
+
+                    // If no notes found, return early
                     if (notes.length === 0) {
-                        console.error('No notes found, returning empty result');
                         return {
                             notes: [],
                             pagination: {
@@ -384,39 +462,46 @@ class StickyNotesServer {
                         };
                     }
 
-                    // Get total count with the same filtering
+                    // Count query uses the same conditions
                     let countQuery = 'SELECT COUNT(DISTINCT notes.id) as total FROM notes';
-                    let countParams: any[] = [];
-
-                    // Add same tag filtering to count query
                     if (tags) {
-                        const tagArray = Array.isArray(tags) ? tags : [tags];
+                        let tagArray: string[];
+
+                        if (typeof tags === 'string') {
+                            tagArray = [tags];
+                        } else if (Array.isArray(tags)) {
+                            tagArray = tags.map(tag => String(tag));
+                        } else {
+                            tagArray = [];
+                        }
+
                         if (tagArray.length > 0) {
-                            countQuery += `
-                                JOIN note_tags ON notes.id = note_tags.note_id
-                                JOIN tags ON note_tags.tag_id = tags.id
-                                WHERE tags.name IN (${tagArray.map(() => '?').join(',')})
-                                GROUP BY notes.id
-                                HAVING COUNT(DISTINCT tags.name) = ?
+                            const existsSubquery = `
+                                EXISTS (
+                                    SELECT 1
+                                    FROM note_tags
+                                    JOIN tags ON note_tags.tag_id = tags.id
+                                    WHERE note_tags.note_id = notes.id
+                                    AND tags.name IN (${tagArray.map(() => '?').join(', ')})
+                                )
                             `;
-                            countParams.push(...tagArray, tagArray.length);
+                            conditions.push(existsSubquery);
+                            params.push(...tagArray);
                         }
                     }
 
-                    if (conversation) {
-                        countQuery += countParams.length === 0 ? ' WHERE' : ' AND';
-                        countQuery += ' conversation_id = ?';
-                        countParams.push(conversation);
+                    if (conditions.length > 0) {
+                        countQuery += ' WHERE ' + conditions.join(' AND ');
                     }
 
-                    console.error('Executing count query:', countQuery, 'with params:', countParams);
-                    const totalResult = db.prepare(countQuery).get(...countParams) as { total: number };
-                    console.error('Got total:', totalResult.total);
+                    // Log count query
+                    console.error('Count Query:', countQuery);
+                    console.error('Count Parameters:', params);
 
-                    // Fetch all tags in a single query
+                    const totalResult = db.prepare(countQuery).get(...params.slice(0, -2)) as { total: number };
+
+                    // Fetch tags for all notes in a single query
                     const noteIds = notes.map(note => note.id);
-                    console.error('Fetching tags for note IDs:', noteIds);
-
                     const tagQuery = `
                         SELECT note_tags.note_id, tags.name 
                         FROM note_tags 
@@ -424,9 +509,7 @@ class StickyNotesServer {
                         WHERE note_tags.note_id IN (${noteIds.map(() => '?').join(',')})
                     `;
 
-                    console.error('Executing tag query:', tagQuery);
                     const tagResults = db.prepare(tagQuery).all(...noteIds) as { note_id: number; name: string }[];
-                    console.error('Got tag results:', tagResults.length);
 
                     // Group tags by note
                     const tagsByNote = new Map<number, string[]>();
@@ -445,10 +528,10 @@ class StickyNotesServer {
                     return {
                         notes,
                         pagination: {
-                            total: totalResult.total,
+                            total: totalResult?.total || 0,
                             page: Number(page),
                             limit: Number(limit),
-                            totalPages: Math.ceil(totalResult.total / Number(limit))
+                            totalPages: Math.ceil((totalResult?.total || 0) / Number(limit))
                         }
                     };
                 });
@@ -472,6 +555,8 @@ class StickyNotesServer {
             try {
                 const { title, content, tags = [], conversation_id = 'default', color_hex, section_id } = req.body;
 
+                console.error('Received tags:', tags); // Debug log
+
                 // Insert the note
                 const result = db.prepare(`
                     INSERT INTO notes (title, content, conversation_id, color_hex, section_id)
@@ -487,8 +572,10 @@ class StickyNotesServer {
                     const linkNoteTag = db.prepare('INSERT INTO note_tags (note_id, tag_id) VALUES (?, ?)');
 
                     for (const tagName of tags) {
+                        console.error('Processing tag:', tagName); // Debug log
                         insertTag.run(tagName);
                         const tag = getTagId.get(tagName) as { id: number };
+                        console.error('Retrieved tag:', tag); // Debug log
                         linkNoteTag.run(noteId, tag.id);
                     }
                 }
@@ -501,6 +588,8 @@ class StickyNotesServer {
                     JOIN tags ON note_tags.tag_id = tags.id 
                     WHERE note_tags.note_id = ?
                 `).all(noteId) as { name: string }[];
+
+                console.error('Retrieved tags after save:', noteTags); // Debug log
 
                 note.tags = noteTags.map(t => t.name);
 
@@ -677,6 +766,34 @@ class StickyNotesServer {
             }
         });
 
+        // Add bulk color update endpoint
+        this.expressApp.patch('/api/notes/bulk/color', ((req: Request, res: Response, next: NextFunction) => {
+            try {
+                const { noteIds, color_hex } = req.body;
+
+                if (!Array.isArray(noteIds) || !color_hex) {
+                    return res.status(400).json({ error: 'Invalid request parameters' });
+                }
+
+                const updateStmt = db.prepare(`
+                    UPDATE notes 
+                    SET color_hex = ?,
+                        updated_at = strftime('%s', 'now')
+                    WHERE id = ?
+                `);
+
+                db.transaction(() => {
+                    for (const id of noteIds) {
+                        updateStmt.run(color_hex, id);
+                    }
+                })();
+
+                res.json({ success: true });
+            } catch (error) {
+                next(error);
+            }
+        }) as RequestHandler);
+
         // Root route
         this.expressApp.get('/', (req: Request, res: Response) => {
             res.sendFile(join(publicPath, 'index.html'));
@@ -842,6 +959,16 @@ class StickyNotesServer {
                         },
                     },
                 },
+                {
+                    name: 'list-conversations',
+                    description: 'Returns a distinct list of all conversation IDs in the system.\n\n' +
+                        'Returns an array of conversation IDs.\n\n' +
+                        'Example response: ["conv123", "meeting-2024", "project-x"]',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {},
+                    },
+                },
             ],
         }));
 
@@ -945,6 +1072,28 @@ class StickyNotesServer {
                         console.error('Error searching notes:', error);
                         return {
                             content: [{ type: 'text', text: `Error searching notes: ${error.message}` }],
+                            isError: true,
+                        };
+                    }
+                }
+                case 'list-conversations': {
+                    try {
+                        const conversations = db.prepare(`
+                            SELECT DISTINCT conversation_id 
+                            FROM notes 
+                            ORDER BY conversation_id
+                        `).all() as { conversation_id: string }[];
+
+                        return {
+                            content: [{
+                                type: 'text',
+                                text: JSON.stringify(conversations.map(c => c.conversation_id), null, 2)
+                            }],
+                        };
+                    } catch (error: any) {
+                        console.error('Error listing conversations:', error);
+                        return {
+                            content: [{ type: 'text', text: `Error listing conversations: ${error.message}` }],
                             isError: true,
                         };
                     }
