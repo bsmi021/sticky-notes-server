@@ -1,0 +1,16 @@
+{
+    "db": {
+        "root": "C:/Users/bsmi0/Documents",
+        "path": "sticky-notes.db",
+        "timeout": 10000,
+        "verbose": false
+    },
+    "server": {
+        "webUiPort": 3088,
+        "wsPort": 8089
+    },
+    "features": {
+        "enableWebsocket": false,
+        "enableFTS": true
+    }
+}

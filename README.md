@@ -8,13 +8,14 @@ A MCP (Model Context Protocol) server for managing sticky notes. This project pr
 
 - **MCP Development**: Implements MCP protocol endpoints and tool handlers (e.g., create-note, update-note, delete-note, search-notes, list-conversations).
 - **REST API**: Supports full CRUD operations for notes, sections, and tags via Express.
-- **WebSocket Support**: Real-time capabilities through a built-in WebSocket server (listening on port 8080).
-- **Full-Text Search**: Leverages SQLite FTS5 for efficient note searches.
+- **WebSocket Support**: Optional real-time capabilities through a built-in WebSocket server.
+- **Full-Text Search**: Optional SQLite FTS5 for efficient note searches.
 - **Tag Management**: Hierarchical tag system with parent-child relationships.
 - **Section Organization**: Group notes into customizable sections.
 - **Color Coding**: Support for color-coded notes and bulk color operations.
-- **Persistency**: Uses SQLite (via better-sqlite3) for local storage. The default database is created in the user's home directory.
-- **UI Integration**: Serves a React-based user interface from the `/public` folder on port 3000.
+- **Persistency**: Uses SQLite (via better-sqlite3) for local storage.
+- **UI Integration**: Serves a React-based user interface from the `/public` folder.
+- **Port Scanning**: Automatically finds available ports if configured ports are in use.
 
 ---
 
@@ -41,39 +42,106 @@ A MCP (Model Context Protocol) server for managing sticky notes. This project pr
    npm install
    ```
 
-3. **(Optional) Build the Project**
-
-   If you are using a build step (for example, if you compile TypeScript), run:
+3. **Build the Project**
 
    ```bash
    npm run build
    ```
 
-4. **Independently Run**
+4. **Run the Server**
 
-  If you want to run the server independently, you can use the following command:
+   ```bash
+   npm start
+   ```
 
-  ```npm run start```
-  
 ---
 
 ## Configuration
 
+The server supports a flexible configuration system with three levels of precedence (highest to lowest):
+
+1. **Environment Variables**
+2. **Configuration File**
+3. **Default Values**
+
 ### Environment Variables
 
-- `DB_ROOT`: The root directory for the database file (defaults to user's home directory)
-- `WEB_UI_PORT`: Port for the web UI (defaults to 3000)
-- `WS_PORT`: Port for WebSocket server (defaults to 8080)
-- `NODE_ENV`: Set to 'development' for verbose logging
+- `STICKY_NOTES_CONFIG`: Path to custom config file location
+- `DB_ROOT`: The root directory for the database file
+- `DB_PATH`: The database file name
+- `DB_TIMEOUT`: Database operation timeout in milliseconds
+- `DB_VERBOSE`: Enable verbose database logging ('true'/'false')
+- `WEB_UI_PORT`: Port for the web UI
+- `WS_PORT`: Port for WebSocket server
+- `ENABLE_WEBSOCKET`: Enable/disable WebSocket support ('true'/'false')
+- `ENABLE_FTS`: Enable/disable full-text search ('true'/'false')
 
-### Database
+### Configuration File
 
-The server uses SQLite for data persistence. By default, the database file (`sticky-notes.db`) is created in your home directory. You can override this behavior by setting the `DB_ROOT` environment variable.
+The server looks for a configuration file in the following locations (in order):
 
-### Ports
+1. Path specified in `STICKY_NOTES_CONFIG` environment variable
+2. `.sticky-notes.config.json` in the current working directory
+3. `.sticky-notes.config.json` in the user's home directory
+4. `/etc/sticky-notes/config.json` (non-Windows systems only)
 
-- **Web UI**: Runs on port `3000` (configurable via `WEB_UI_PORT`)
-- **WebSocket Server**: Runs on port `8080` (configurable via `WS_PORT`)
+Example configuration file:
+
+```json
+{
+    "db": {
+        "root": "C:/Users/username/Documents",
+        "path": "sticky-notes.db",
+        "timeout": 10000,
+        "verbose": false
+    },
+    "server": {
+        "webUiPort": 3088,
+        "wsPort": 8089
+    },
+    "features": {
+        "enableWebsocket": false,
+        "enableFTS": true
+    }
+}
+```
+
+### Default Configuration
+
+If no configuration is provided, the server uses these defaults:
+
+```json
+{
+    "db": {
+        "root": "<user home directory>",
+        "path": "sticky-notes.db",
+        "timeout": 10000,
+        "verbose": false (true in development)
+    },
+    "server": {
+        "webUiPort": 3000,
+        "wsPort": 8080
+    },
+    "features": {
+        "enableWebsocket": true,
+        "enableFTS": true
+    }
+}
+```
+
+### Port Handling
+
+If a configured port is in use, the server will:
+
+1. Attempt to find the next available port (scanning up to 100 ports higher)
+2. Log a message indicating the actual port being used
+3. Continue normal operation on the new port
+
+For example, if port 3000 is in use, the server might use 3001 and log:
+
+```
+Web UI running at http://localhost:3001 (original port 3000 was in use)
+```
 
 ---
 

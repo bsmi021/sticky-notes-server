@@ -18,6 +18,8 @@ import { fileURLToPath } from 'url';
 import { Request, Response } from 'express';
 import { ParamsDictionary } from 'express-serve-static-core';
 import { ParsedQs } from 'qs';
+import { config } from './config.js';
+import { findAvailablePort } from './utils/ValidationUtils.js';
 
 // Define Tag interface
 interface Tag {
@@ -47,11 +49,11 @@ interface CountResult {
 }
 const DB_ROOT = process.env.DB_ROOT || process.env.USERPROFILE || process.env.HOME || '';
 // Database Configuration
-const DB_PATH = join(DB_ROOT, 'sticky-notes.db');
+const DB_PATH = join(config.db.root, config.db.path);
 
 // Express App Configuration
-const WEB_UI_PORT = process.env.WEB_UI_PORT ? parseInt(process.env.WEB_UI_PORT, 10) : 3000;
-const WS_PORT = process.env.WS_PORT ? parseInt(process.env.WS_PORT, 10) : 8080;
+const WEB_UI_PORT = config.server.webUiPort;
+const WS_PORT = config.server.wsPort;
 
 // Helper function to get the directory name
 const __filename = fileURLToPath(import.meta.url);
@@ -60,8 +62,8 @@ const __dirname = join(fileURLToPath(import.meta.url), '..');
 // Database instance
 const db = new Database(DB_PATH, {
     fileMustExist: false,
-    timeout: 10000,
-    verbose: process.env.NODE_ENV === 'development' ? console.log : undefined
+    timeout: config.db.timeout,
+    verbose: config.db.verbose ? console.log : undefined
 });
 
 // Enable foreign keys and initialize WAL mode
@@ -114,6 +116,7 @@ const initDatabase = () => {
             FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
         );
 
+        ${config.features?.enableFTS ? `
         -- Full-text search virtual table
         CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
             title,
@@ -139,6 +142,7 @@ const initDatabase = () => {
             INSERT INTO notes_fts(rowid, title, content)
             VALUES (new.id, new.title, new.content);
         END;
+        ` : ''}
 
         -- Indexes for performance
         CREATE INDEX IF NOT EXISTS idx_notes_conversation_updated ON notes(conversation_id, updated_at DESC);
@@ -258,7 +262,7 @@ const preparedStatements = {
 // MCP Server Implementation
 class StickyNotesServer {
     private server: Server;
-    private webSocketServer: WebSocketServer;
+    private webSocketServer: WebSocketServer | null = null;
     private expressApp: express.Express;
 
     constructor() {
@@ -279,23 +283,31 @@ class StickyNotesServer {
             }
         );
 
-        this.webSocketServer = new WebSocketServer({ port: WS_PORT });
         this.expressApp = express();
-
-        this.setupExpress();
-        this.setupWebSocket();
-        this.setupResourceHandlers();
-        this.setupToolHandlers();
 
         // Error handling
         this.server.onerror = (error: any) => console.error('[MCP Error]', error);
         process.on('SIGINT', async () => {
-            await this.server.close();
+            await this.cleanup();
             process.exit(0);
         });
     }
 
-    private setupExpress() {
+    private async initialize() {
+        await this.setupExpress();
+        await this.setupWebSocket();
+        this.setupResourceHandlers();
+        this.setupToolHandlers();
+    }
+
+    async run() {
+        const transport = new StdioServerTransport();
+        await this.initialize();
+        await this.server.connect(transport);
+        console.error('Sticky Notes MCP server running on stdio');
+    }
+
+    private async setupExpress() {
         const publicPath = join(__dirname, 'public');
         this.expressApp.use(express.static(publicPath));
         this.expressApp.use(express.json());
@@ -802,12 +814,32 @@ class StickyNotesServer {
         // Register error handler after all routes
         this.expressApp.use(errorHandler);
 
-        this.expressApp.listen(WEB_UI_PORT, () => {
-            console.error(`Web UI running at http://localhost:${WEB_UI_PORT}`);
+        // Find available port starting from configured port
+        const port = await findAvailablePort(WEB_UI_PORT);
+        if (!port) {
+            throw new Error(`Could not find available port after trying ${WEB_UI_PORT} through ${WEB_UI_PORT + 100}`);
+        }
+
+        this.expressApp.listen(port, () => {
+            console.error(`Web UI running at http://localhost:${port}${port !== WEB_UI_PORT ? ` (original port ${WEB_UI_PORT} was in use)` : ''}`);
         });
     }
 
-    private setupWebSocket() {
+    private async setupWebSocket() {
+        if (!config.features?.enableWebsocket) {
+            console.error('WebSocket server disabled by configuration');
+            return;
+        }
+
+        // Find available port starting from configured port
+        const port = await findAvailablePort(WS_PORT);
+        if (!port) {
+            throw new Error(`Could not find available port for WebSocket server after trying ${WS_PORT} through ${WS_PORT + 100}`);
+        }
+
+        this.webSocketServer = new WebSocketServer({ port });
+        console.error(`WebSocket server running on port ${port}${port !== WS_PORT ? ` (original port ${WS_PORT} was in use)` : ''}`);
+
         this.webSocketServer.on('connection', ws => {
             console.error('WebSocket connection established');
 
@@ -1104,15 +1136,18 @@ class StickyNotesServer {
         });
     }
 
-    async run() {
-        const transport = new StdioServerTransport();
-        await this.server.connect(transport);
-        console.error('Sticky Notes MCP server running on stdio');
-
-        // Now we can safely send logging messages
-
+    private async cleanup() {
+        if (this.webSocketServer) {
+            await new Promise<void>((resolve) => {
+                this.webSocketServer?.close(() => resolve());
+            });
+        }
+        await this.server.close();
     }
 }
 
 const server = new StickyNotesServer();
-server.run().catch(console.error);
+server.run().catch((error) => {
+    console.error("Fatal error running server:", error);
+    process.exit(1);
+});
