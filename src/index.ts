@@ -22,6 +22,8 @@ import { config } from './config.js';
 import { findAvailablePort } from './utils/ValidationUtils.js';
 import { ExportService } from './services/exportService.js';
 import { renderMarkdown } from './utils/markdown.js';
+import WebSocket from 'ws';
+import NotesWebSocketServer from './websocket/server.js';
 
 // Define Tag interface
 interface Tag {
@@ -278,7 +280,7 @@ const preparedStatements = {
 // MCP Server Implementation
 class StickyNotesServer {
     private server: Server;
-    private webSocketServer: WebSocketServer | null = null;
+    private webSocketServer: NotesWebSocketServer;
     private expressApp: express.Express;
     private db: Database.Database;
     private exportService: ExportService;
@@ -304,6 +306,7 @@ class StickyNotesServer {
         this.expressApp = express();
         this.db = db;
         this.exportService = new ExportService();
+        this.webSocketServer = new NotesWebSocketServer(this.db);
 
         // Error handling
         this.server.onerror = (error: any) => console.error('[MCP Error]', error);
@@ -916,6 +919,20 @@ class StickyNotesServer {
             }
         });
 
+        // Add WebSocket port configuration endpoint
+        this.expressApp.get('/api/config/ws-port', async (req: Request, res: Response) => {
+            try {
+                const port = this.webSocketServer.getCurrentPort();
+                if (!port) {
+                    throw new Error('WebSocket server not initialized or disabled');
+                }
+                res.json({ port });
+            } catch (error) {
+                console.error('Error getting WebSocket port:', error);
+                res.status(500).json({ error: 'Failed to get WebSocket port configuration' });
+            }
+        });
+
         // Register error handler after all routes
         this.expressApp.use(errorHandler);
 
@@ -931,32 +948,7 @@ class StickyNotesServer {
     }
 
     private async setupWebSocket() {
-        if (!config.features?.enableWebsocket) {
-            console.error('WebSocket server disabled by configuration');
-            return;
-        }
-
-        // Find available port starting from configured port
-        const port = await findAvailablePort(WS_PORT);
-        if (!port) {
-            throw new Error(`Could not find available port for WebSocket server after trying ${WS_PORT} through ${WS_PORT + 100}`);
-        }
-
-        this.webSocketServer = new WebSocketServer({ port });
-        console.error(`WebSocket server running on port ${port}${port !== WS_PORT ? ` (original port ${WS_PORT} was in use)` : ''}`);
-
-        this.webSocketServer.on('connection', ws => {
-            console.error('WebSocket connection established');
-
-            ws.on('message', message => {
-                console.error('Received:', message);
-                ws.send('Hello from WebSocket server!');
-            });
-
-            ws.on('close', () => {
-                console.error('WebSocket connection closed');
-            });
-        });
+        await this.webSocketServer.initialize();
     }
 
     private setupResourceHandlers() {
@@ -1025,11 +1017,11 @@ class StickyNotesServer {
             tools: [
                 {
                     name: 'create-note',
-                    description: 'Creates a new note with optional tags.\n\n' +
+                    description: 'Creates a new note with optional tags. Using Markdown formatting.\n\n' +
                         'Required Fields:\n' +
-                        '- title: String (1-100 chars)\n' +
+                        '- title: String (1-100 chars, Generally the name of the conversation)\n' +
                         '- content: String (markdown supported)\n' +
-                        '- conversationId: String\n\n' +
+                        '- conversationId: String (unique identifier for the conversation, you provide this)\n\n' +
                         'Optional Fields:\n' +
                         '- tags: Array of strings\n\n' +
                         'Example: { "title": "Meeting Notes", "content": "Discussed Q4 plans", "conversationId": "conv123", "tags": ["meeting", "planning"] }',
@@ -1169,6 +1161,16 @@ class StickyNotesServer {
                                     // Insert note tag
                                     preparedStatements.insertNoteTag.run({ note_id: id, tag_id: tagRecord.id });
                                 }
+                            }
+
+                            // Fetch the complete note with tags for broadcasting
+                            const note = preparedStatements.getNoteById.get({ id }) as Note;
+                            const noteTags = preparedStatements.getTagsByNoteId.all({ note_id: id }) as { name: string }[];
+                            note.tags = noteTags.map(t => t.name);
+
+                            // Broadcast the new note to all WebSocket clients
+                            if (this.webSocketServer) {
+                                this.webSocketServer.broadcastNoteCreation(note);
                             }
 
                             return {
@@ -1406,11 +1408,7 @@ class StickyNotesServer {
     }
 
     private async cleanup() {
-        if (this.webSocketServer) {
-            await new Promise<void>((resolve) => {
-                this.webSocketServer?.close(() => resolve());
-            });
-        }
+        await this.webSocketServer.shutdown();
         await this.server.close();
     }
 }

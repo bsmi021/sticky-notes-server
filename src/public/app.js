@@ -1287,6 +1287,66 @@ const App = () => {
     const [bulkActionMode, setBulkActionMode] = React.useState(false);
     const [selectedNotes, setSelectedNotes] = React.useState(new Set());
 
+    // Add WebSocket connection
+    React.useEffect(() => {
+        /** @type {WebSocket|null} */
+        let ws = null;
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+        const reconnectDelay = 1000; // 1 second
+
+        const connectWebSocket = async () => {
+            try {
+                const response = await fetch('/api/config/ws-port');
+                if (!response.ok) {
+                    throw new Error('Failed to get WebSocket port');
+                }
+                const data = await response.json();
+
+                ws = new WebSocket(`ws://localhost:${data.port}`);
+
+                ws.onmessage = (event) => {
+                    const message = JSON.parse(event.data);
+                    if (message.type === 'note_created') {
+                        // Refresh notes when a new note is created
+                        fetchNotes();
+                    }
+                };
+
+                ws.onopen = () => {
+                    console.log('WebSocket connected');
+                    reconnectAttempts = 0; // Reset attempts on successful connection
+                };
+
+                ws.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                };
+
+                ws.onclose = () => {
+                    console.log('WebSocket connection closed');
+                    if (reconnectAttempts < maxReconnectAttempts) {
+                        reconnectAttempts++;
+                        setTimeout(connectWebSocket, reconnectDelay * reconnectAttempts);
+                    }
+                };
+            } catch (error) {
+                console.error('Failed to establish WebSocket connection:', error);
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    reconnectAttempts++;
+                    setTimeout(connectWebSocket, reconnectDelay * reconnectAttempts);
+                }
+            }
+        };
+
+        connectWebSocket();
+
+        return () => {
+            if (ws) {
+                ws.close();
+            }
+        };
+    }, [fetchNotes]);
+
     const { uniqueTags, uniqueConversations } = React.useMemo(() => {
         const tagSet = new Set();
         const conversationSet = new Set();

@@ -12,6 +12,7 @@ class NotesWebSocketServer {
     private webSocketServer: WebSocketServer | null = null;
     private connections = new Set<WebSocket>();
     private db: Database.Database;
+    private currentPort: number | null = null;
 
     constructor(db: Database.Database) {
         this.db = db;
@@ -28,10 +29,15 @@ class NotesWebSocketServer {
             throw new Error(`Could not find available port for WebSocket server`);
         }
 
+        this.currentPort = port;
         this.webSocketServer = new WebSocketServer({ port });
         console.error(`WebSocket server running on port ${port}`);
 
         this.setupConnectionHandlers();
+    }
+
+    public getCurrentPort(): number | null {
+        return this.currentPort;
     }
 
     private setupConnectionHandlers() {
@@ -64,6 +70,23 @@ class NotesWebSocketServer {
                 ws.send(JSON.stringify(message));
             }
         });
+    }
+
+    public broadcastNoteCreation(note: any) {
+        const message: WebSocketMessage = {
+            type: 'note_created',
+            payload: note
+        };
+
+        this.connections.forEach(ws => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(message));
+            }
+        });
+    }
+
+    public getClients(): Set<WebSocket> {
+        return this.connections;
     }
 
     async shutdown() {
