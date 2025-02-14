@@ -1,7 +1,12 @@
 import { existsSync } from 'fs';
 import { readFileSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { homedir } from 'os';
+import { fileURLToPath } from 'url';
+
+// Get the directory where the script is located
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 interface Config {
     db: {
@@ -67,14 +72,20 @@ class Configuration {
         const configPaths = [
             process.env.STICKY_NOTES_CONFIG,
             join(process.cwd(), '.sticky-notes.config.json'),
+            join(__dirname, '.sticky-notes.config.json'),           // Check in build/
+            join(__dirname, 'public', '.sticky-notes.config.json'), // Check in build/public/
+            join(__dirname, '..', '.sticky-notes.config.json'),     // Check in project root
             join(homedir(), 'sticky-notes.config.json'),
             process.platform !== 'win32' ? '/etc/sticky-notes/config.json' : null
         ].filter(Boolean);
+
+        console.error('Searching for config in paths:', configPaths);
 
         for (const path of configPaths) {
             if (path && existsSync(path)) {
                 try {
                     const configFile = readFileSync(path, 'utf8');
+                    console.error(`Loading configuration from: ${path}`);
                     return JSON.parse(configFile);
                 } catch (error) {
                     console.error(`Error reading config file ${path}:`, error);
@@ -82,6 +93,7 @@ class Configuration {
             }
         }
 
+        console.error('No configuration file found, using defaults');
         return {};
     }
 

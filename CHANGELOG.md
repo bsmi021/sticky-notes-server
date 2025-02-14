@@ -35,12 +35,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved configuration system with clear precedence
 - Enhanced error handling for database operations
 - Optimized database queries with prepared statements
+- Added script directory to configuration file lookup paths
+- Improved configuration loading feedback with detailed logging
 
 ### Fixed
 
 - Port conflict issues with automatic port scanning
 - Database connection handling improvements
 - WebSocket server cleanup on shutdown
+- Configuration file not being found when server is started with absolute path
 
 ## [0.1.0] - 2024-02-12
 

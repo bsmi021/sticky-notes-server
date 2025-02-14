@@ -5,87 +5,41 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sticky Notes</title>
-    <!-- React -->
-    <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
-    <!-- Babel for JSX -->
-    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
-    <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- Tailwind CSS -->
+
+    <!-- Production versions of React -->
+    <script src="https://unpkg.com/react@17/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js"></script>
+
+    <!-- Production version of Babel -->
+    <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+
+    <!-- Production version of Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Custom styles -->
+    <link rel="stylesheet" href="themes.css">
+
     <script>
+        // Tailwind configuration
         tailwind.config = {
-            darkMode: 'class',
             theme: {
                 extend: {
                     colors: {
-                        'accent-primary': 'var(--accent-primary)',
-                        'accent-hover': 'var(--accent-hover)',
-                        'default': 'var(--bg-default)',
-                        'secondary': 'var(--bg-secondary)',
-                        'tertiary': 'var(--bg-tertiary)',
-                        'danger': 'var(--danger)',
-                        'danger-hover': 'var(--danger-hover)',
+                        'accent-primary': '#4F46E5',
+                        'accent-hover': '#4338CA',
+                        'danger': '#DC2626'
                     }
                 }
             }
         }
     </script>
-    <!-- Custom Styles -->
-    <style>
-        :root {
-            --accent-primary: #2563eb;
-            --accent-hover: #1d4ed8;
-            --danger: #ef4444;
-            --danger-hover: #dc2626;
-        }
-
-        :root.light {
-            --bg-default: #ffffff;
-            --bg-secondary: #f3f4f6;
-            --bg-tertiary: #e5e7eb;
-            --text-primary: #111827;
-            --text-secondary: #4b5563;
-            --text-tertiary: #6b7280;
-            --border-default: #d1d5db;
-        }
-
-        :root.dark {
-            --bg-default: #1f2937;
-            --bg-secondary: #111827;
-            --bg-tertiary: #374151;
-            --text-primary: #f9fafb;
-            --text-secondary: #e5e7eb;
-            --text-tertiary: #9ca3af;
-            --border-default: #374151;
-        }
-
-        body {
-            color: var(--text-primary);
-            background-color: var(--bg-default);
-        }
-
-        .primary {
-            background-color: var(--accent-primary);
-            color: white;
-        }
-
-        .danger {
-            background-color: var(--danger);
-            color: white;
-        }
-    </style>
 </head>
 
 <body>
     <div id="root"></div>
 
-    <!-- Component Scripts -->
-    <script type="text/babel" src="components/Note.js"></script>
-    <script type="text/babel" src="components/NoteModal.js"></script>
-    <script type="text/babel" src="components/Sidebar.js"></script>
-    <script type="text/babel" src="app.js"></script>
+    <!-- Application code -->
+    <script type="text/babel" data-type="module" src="app.js"></script>
 </body>
 
 </html>

@@ -431,7 +431,16 @@ const NotesAPI = {
             const errorData = await response.json();
             throw new Error(errorData.error || 'Failed to fetch notes');
         }
-        return response.json();
+        const data = await response.json();
+        return {
+            notes: data.notes || [],
+            pagination: {
+                total: data.pagination && data.pagination.total || 0,
+                page: data.pagination && data.pagination.page || 1,
+                limit: data.pagination && data.pagination.limit || 10,
+                totalPages: data.pagination && data.pagination.totalPages || 1
+            }
+        };
     },
 
     async saveNote(noteData, signal) {
@@ -635,11 +644,110 @@ const DateFilter = ({ selectedRange, onRangeSelect }) => {
     );
 };
 
+// PaginationControls Component
+const PaginationControls = ({ currentPage, totalPages, onPageChange, isLoading }) => {
+    const [pageInput, setPageInput] = React.useState(currentPage);
+
+    React.useEffect(() => {
+        setPageInput(currentPage);
+    }, [currentPage]);
+
+    const handlePageInputChange = (e) => {
+        const value = e.target.value;
+        setPageInput(value);
+    };
+
+    const handlePageInputSubmit = (e) => {
+        e.preventDefault();
+        const page = parseInt(pageInput);
+        if (page >= 1 && page <= totalPages) {
+            onPageChange(page);
+        } else {
+            setPageInput(currentPage);
+        }
+    };
+
+    const goToPage = (page) => {
+        if (page >= 1 && page <= totalPages) {
+            onPageChange(page);
+        }
+    };
+
+    return (
+        <div className="flex items-center justify-center gap-4 mt-6">
+            <button
+                onClick={() => goToPage(1)}
+                disabled={currentPage === 1 || isLoading}
+                className="p-2 rounded hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+                title="First page"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="11 17 6 12 11 7"></polyline>
+                    <polyline points="18 17 13 12 18 7"></polyline>
+                </svg>
+            </button>
+            <button
+                onClick={() => goToPage(currentPage - 1)}
+                disabled={currentPage === 1 || isLoading}
+                className="p-2 rounded hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Previous page"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+            </button>
+
+            <form onSubmit={handlePageInputSubmit} className="flex items-center gap-2">
+                <span className="text-sm">Page</span>
+                <input
+                    type="number"
+                    value={pageInput}
+                    onChange={handlePageInputChange}
+                    onBlur={handlePageInputSubmit}
+                    min="1"
+                    max={totalPages}
+                    className="w-16 px-2 py-1 rounded bg-secondary text-center"
+                    disabled={isLoading}
+                />
+                <span className="text-sm">of {totalPages}</span>
+            </form>
+
+            <button
+                onClick={() => goToPage(currentPage + 1)}
+                disabled={currentPage === totalPages || isLoading}
+                className="p-2 rounded hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Next page"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+            </button>
+            <button
+                onClick={() => goToPage(totalPages)}
+                disabled={currentPage === totalPages || isLoading}
+                className="p-2 rounded hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Last page"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="13 17 18 12 13 7"></polyline>
+                    <polyline points="6 17 11 12 6 7"></polyline>
+                </svg>
+            </button>
+        </div>
+    );
+};
+
 // Custom hooks
 const useNotesData = () => {
     const [notes, setNotes] = React.useState([]);
     const [isLoading, setIsLoading] = React.useState(false);
     const [error, setError] = React.useState(null);
+    const [pagination, setPagination] = React.useState({
+        total: 0,
+        page: 1,
+        limit: 12,
+        totalPages: 1
+    });
     const [filters, setFilters] = React.useState({
         searchTerm: '',
         selectedTags: [],
@@ -682,12 +790,24 @@ const useNotesData = () => {
                 const data = await NotesAPI.fetchNotes(memoizedFilters, controller.signal);
                 if (isMounted) {
                     setNotes(data.notes || []);
+                    setPagination(data.pagination || {
+                        total: 0,
+                        page: 1,
+                        limit: filters.limit,
+                        totalPages: 1
+                    });
                 }
             } catch (error) {
                 if (!isMounted) return;
                 if (error.name === 'AbortError') return;
                 setError(error.message);
                 setNotes([]);
+                setPagination({
+                    total: 0,
+                    page: 1,
+                    limit: filters.limit,
+                    totalPages: 1
+                });
             } finally {
                 if (isMounted) {
                     setIsLoading(false);
@@ -707,7 +827,7 @@ const useNotesData = () => {
         setFilters(prev => ({
             ...prev,
             ...newFilters,
-            page: newFilters.resetPage ? 1 : prev.page
+            page: newFilters.resetPage ? 1 : (newFilters.page || prev.page)
         }));
     }, []);
 
@@ -757,11 +877,60 @@ const useNotesData = () => {
         isLoading,
         error,
         filters,
+        pagination,
         updateFilters,
         fetchNotes,
         updateNoteColor,
         updateNotesColor
     };
+};
+
+const useConversationsData = () => {
+    const [conversations, setConversations] = React.useState([]);
+    const [isLoading, setIsLoading] = React.useState(false);
+    const [error, setError] = React.useState(null);
+
+    React.useEffect(() => {
+        const controller = new AbortController();
+        let isMounted = true;
+
+        const fetchData = async () => {
+            if (!isMounted) return;
+            setIsLoading(true);
+            setError(null);
+
+            try {
+                const response = await fetch('/api/conversations', { signal: controller.signal });
+
+                if (!response.ok) {
+                    throw new Error('Failed to fetch conversations');
+                }
+
+                const data = await response.json();
+                if (isMounted) {
+                    setConversations(data.conversations || []);
+                }
+            } catch (error) {
+                if (!isMounted) return;
+                if (error.name === 'AbortError') return;
+                setError(error.message);
+                setConversations([]);
+            } finally {
+                if (isMounted) {
+                    setIsLoading(false);
+                }
+            }
+        };
+
+        fetchData();
+
+        return () => {
+            isMounted = false;
+            controller.abort();
+        };
+    }, []);
+
+    return { conversations, isLoading, error };
 };
 
 // Sidebar Component
@@ -1012,16 +1181,19 @@ const NotesGrid = React.memo(({ notes, onEdit, onDelete, onColorChange, onTagCli
 
 // Main App Component
 const App = () => {
+    useLucideIcons();
     const {
         notes,
         isLoading,
         error,
         filters,
+        pagination,
         updateFilters,
         fetchNotes,
         updateNoteColor,
         updateNotesColor
     } = useNotesData();
+    const { conversations, isLoadingConversations } = useConversationsData();
 
     const [isModalOpen, setIsModalOpen] = React.useState(false);
     const [selectedNote, setSelectedNote] = React.useState(null);
@@ -1110,73 +1282,88 @@ const App = () => {
                     filters={filters}
                     onUpdateFilters={updateFilters}
                     uniqueTags={uniqueTags}
-                    uniqueConversations={uniqueConversations}
+                    uniqueConversations={conversations}
                     noteColors={NOTE_COLORS}
                 />
 
-                <main className="flex-1 p-4 overflow-auto">
-                    <div className="flex justify-between items-center mb-6">
-                        <div className="flex items-center gap-4">
-                            <button
-                                onClick={() => setBulkActionMode(!bulkActionMode)}
-                                className={`px-4 py-2 rounded transition-colors ${bulkActionMode ? 'bg-accent-primary text-white' : 'bg-secondary hover:bg-tertiary'}`}
-                            >
-                                Bulk Actions
-                            </button>
+                <main className="flex-1 flex flex-col h-screen">
+                    <div className="p-4 border-b border-default">
+                        <div className="flex justify-between items-center mb-6">
+                            <div className="flex items-center gap-4">
+                                <button
+                                    onClick={() => setBulkActionMode(!bulkActionMode)}
+                                    className={`px-4 py-2 rounded transition-colors ${bulkActionMode ? 'bg-accent-primary text-white' : 'bg-secondary hover:bg-tertiary'}`}
+                                >
+                                    Bulk Actions
+                                </button>
 
-                            <SortControls
-                                currentSort={filters.sort}
-                                onSort={(sort) => updateFilters({ sort })}
-                            />
+                                <SortControls
+                                    currentSort={filters.sort}
+                                    onSort={(sort) => updateFilters({ sort })}
+                                />
+                            </div>
+
+                            <button
+                                onClick={handleNewNote}
+                                className="primary px-4 py-2 rounded hover:bg-accent-hover transition-colors"
+                            >
+                                New Note
+                            </button>
                         </div>
 
-                        <button
-                            onClick={handleNewNote}
-                            className="primary px-4 py-2 rounded hover:bg-accent-hover transition-colors"
-                        >
-                            New Note
-                        </button>
+                        {bulkActionMode && (
+                            <BulkActionsToolbar
+                                onColorChange={handleBulkColorChange}
+                                onDelete={handleBulkDelete}
+                                selectedCount={selectedNotes.size}
+                                onClearSelection={() => {
+                                    setSelectedNotes(new Set());
+                                    setBulkActionMode(false);
+                                }}
+                                noteColors={NOTE_COLORS}
+                            />
+                        )}
                     </div>
 
-                    {bulkActionMode && (
-                        <BulkActionsToolbar
-                            onColorChange={handleBulkColorChange}
-                            onDelete={handleBulkDelete}
-                            selectedCount={selectedNotes.size}
-                            onClearSelection={() => {
-                                setSelectedNotes(new Set());
-                                setBulkActionMode(false);
-                            }}
-                            noteColors={NOTE_COLORS}
-                        />
-                    )}
+                    <div className="flex-1 overflow-y-auto p-4">
+                        {isLoading ? (
+                            <div className="flex justify-center items-center h-64">
+                                <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-accent-primary"></div>
+                            </div>
+                        ) : error ? (
+                            <div className="text-center text-danger mt-8">
+                                <p>Error: {error}</p>
+                                <button
+                                    onClick={() => fetchNotes()}
+                                    className="mt-4 px-4 py-2 rounded bg-accent-primary text-white hover:bg-accent-hover"
+                                >
+                                    Retry
+                                </button>
+                            </div>
+                        ) : (
+                            <NotesGrid
+                                notes={notes}
+                                onEdit={handleEditNote}
+                                onDelete={noteId => setDeleteConfirm({ isOpen: true, noteId })}
+                                onColorChange={updateNoteColor}
+                                onTagClick={tag => updateFilters({ selectedTags: [tag], resetPage: true })}
+                                onConversationClick={conv => updateFilters({ selectedConversation: conv, resetPage: true })}
+                                selectedNotes={selectedNotes}
+                                onSelectNote={handleSelectNote}
+                                bulkActionMode={bulkActionMode}
+                            />
+                        )}
+                    </div>
 
-                    {isLoading ? (
-                        <div className="flex justify-center items-center h-64">
-                            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-accent-primary"></div>
+                    {notes.length > 0 && pagination && (
+                        <div className="border-t border-default p-4 bg-default">
+                            <PaginationControls
+                                currentPage={pagination.page}
+                                totalPages={pagination.totalPages}
+                                onPageChange={(page) => updateFilters({ page })}
+                                isLoading={isLoading}
+                            />
                         </div>
-                    ) : error ? (
-                        <div className="text-center text-danger mt-8">
-                            <p>Error: {error}</p>
-                            <button
-                                onClick={() => fetchNotes()}
-                                className="mt-4 px-4 py-2 rounded bg-accent-primary text-white hover:bg-accent-hover"
-                            >
-                                Retry
-                            </button>
-                        </div>
-                    ) : (
-                        <NotesGrid
-                            notes={notes}
-                            onEdit={handleEditNote}
-                            onDelete={noteId => setDeleteConfirm({ isOpen: true, noteId })}
-                            onColorChange={updateNoteColor}
-                            onTagClick={tag => updateFilters({ selectedTags: [tag], resetPage: true })}
-                            onConversationClick={conv => updateFilters({ selectedConversation: conv, resetPage: true })}
-                            selectedNotes={selectedNotes}
-                            onSelectNote={handleSelectNote}
-                            bulkActionMode={bulkActionMode}
-                        />
                     )}
 
                     {isModalOpen && (
