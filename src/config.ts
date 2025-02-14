@@ -71,7 +71,6 @@ class Configuration {
     private loadConfigFile(): PartialConfig {
         const configPaths = [
             process.env.STICKY_NOTES_CONFIG,
-            join(process.cwd(), '.sticky-notes.config.json'),
             join(__dirname, '.sticky-notes.config.json'),           // Check in build/
             join(__dirname, 'public', '.sticky-notes.config.json'), // Check in build/public/
             join(__dirname, '..', '.sticky-notes.config.json'),     // Check in project root

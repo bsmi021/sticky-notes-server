@@ -1042,7 +1042,6 @@ class StickyNotesServer {
                             conversationId: { type: 'string', description: 'REQUIRED. Conversation ID associated with the note.' },
                             tags: { type: 'array', items: { type: 'string' }, description: 'Optional. Array of tags to associate with the note.' },
                         },
-
                         required: ['title', 'content', 'conversationId'],
                     },
                 },
@@ -1078,7 +1077,6 @@ class StickyNotesServer {
                     inputSchema: {
                         type: 'object',
                         properties: {
-
                             id: { type: 'string', description: 'REQUIRED. Unique identifier of the note to delete.' },
                         },
                         required: ['id'],
@@ -1104,6 +1102,37 @@ class StickyNotesServer {
                     inputSchema: {
                         type: 'object',
                         properties: {},
+                    },
+                },
+                {
+                    name: 'export-notes',
+                    description: 'Export notes in markdown or HTML format',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            noteIds: {
+                                type: 'array',
+                                items: { type: 'number' },
+                                description: 'Array of note IDs to export',
+                            },
+                            format: {
+                                type: 'string',
+                                enum: ['md', 'html'],
+                                default: 'md',
+                                description: 'Export format (markdown or HTML)',
+                            },
+                            includeMetadata: {
+                                type: 'boolean',
+                                default: true,
+                                description: 'Include note metadata in export',
+                            },
+                            includeToc: {
+                                type: 'boolean',
+                                default: false,
+                                description: 'Include table of contents',
+                            },
+                        },
+                        required: ['noteIds'],
                     },
                 },
             ],
@@ -1307,103 +1336,59 @@ class StickyNotesServer {
                             );
                         }
                     }
+                    case 'export-notes': {
+                        try {
+                            const params = request.params.arguments as {
+                                noteIds: number[],
+                                format?: 'md' | 'html',
+                                includeMetadata?: boolean,
+                                includeToc?: boolean
+                            };
+                            const { noteIds, format = 'md', includeMetadata = true, includeToc = false } = params;
+
+                            // Validate note IDs
+                            if (!Array.isArray(noteIds) || noteIds.length === 0) {
+                                throw new McpError(ErrorCode.InvalidParams, 'Note IDs must be a non-empty array');
+                            }
+
+                            // Fetch notes from database
+                            const notes = noteIds.map(id => {
+                                const note = db.prepare('SELECT notes.*, GROUP_CONCAT(tags.name) as tag_list FROM notes LEFT JOIN note_tags ON notes.id = note_tags.note_id LEFT JOIN tags ON note_tags.tag_id = tags.id WHERE notes.id = ? GROUP BY notes.id').get(id) as any;
+                                if (!note) {
+                                    throw new McpError(ErrorCode.MethodNotFound, `Note with ID ${id} not found`);
+                                }
+                                return {
+                                    ...note,
+                                    tags: note.tag_list ? note.tag_list.split(',') : [],
+                                };
+                            });
+
+                            // Export notes
+                            const exportedContent = notes.length === 1
+                                ? this.exportService.exportNote(notes[0], { format, includeMetadata, includeToc })
+                                : this.exportService.exportNotes(notes, { format, includeMetadata, includeToc });
+
+                            return {
+                                content: [
+                                    {
+                                        type: 'text',
+                                        text: exportedContent
+                                    }
+                                ]
+                            };
+                        } catch (error) {
+                            if (error instanceof McpError) {
+                                throw error;
+                            }
+                            console.error('Error exporting notes:', error);
+                            throw new McpError(ErrorCode.InternalError, 'Failed to export notes');
+                        }
+                    }
                     default:
                         throw new McpError(ErrorCode.InvalidRequest, `Unknown tool: ${request.params.name}`);
                 }
             }
         );
-
-        // Add export-notes tool
-        this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-            if (request.params.name !== 'export-notes') {
-                return { content: [] };
-            }
-
-            try {
-                const params = request.params.params as {
-                    noteIds: number[],
-                    format?: 'md' | 'html',
-                    includeMetadata?: boolean,
-                    includeToc?: boolean
-                };
-                const { noteIds, format = 'md', includeMetadata = true, includeToc = false } = params;
-
-                // Validate note IDs
-                if (!Array.isArray(noteIds) || noteIds.length === 0) {
-                    throw new McpError(ErrorCode.InvalidParams, 'Note IDs must be a non-empty array');
-                }
-
-                // Fetch notes from database
-                const notes = noteIds.map(id => {
-                    const note = db.prepare('SELECT notes.*, GROUP_CONCAT(tags.name) as tag_list FROM notes LEFT JOIN note_tags ON notes.id = note_tags.note_id LEFT JOIN tags ON note_tags.tag_id = tags.id WHERE notes.id = ? GROUP BY notes.id').get(id) as any;
-                    if (!note) {
-                        throw new McpError(ErrorCode.MethodNotFound, `Note with ID ${id} not found`);
-                    }
-                    return {
-                        ...note,
-                        tags: note.tag_list ? note.tag_list.split(',') : [],
-                    };
-                });
-
-                // Export notes
-                const exportedContent = notes.length === 1
-                    ? this.exportService.exportNote(notes[0], { format, includeMetadata, includeToc })
-                    : this.exportService.exportNotes(notes, { format, includeMetadata, includeToc });
-
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: exportedContent
-                        }
-                    ]
-                };
-            } catch (error) {
-                if (error instanceof McpError) {
-                    throw error;
-                }
-                console.error('Error exporting notes:', error);
-                throw new McpError(ErrorCode.InternalError, 'Failed to export notes');
-            }
-        });
-
-        // Update tools list to include export-notes
-        this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-            tools: [
-                // ... existing tools ...
-                {
-                    name: 'export-notes',
-                    description: 'Export notes in markdown or HTML format',
-                    parameters: {
-                        type: 'object',
-                        properties: {
-                            noteIds: {
-                                type: 'array',
-                                items: { type: 'number' },
-                                description: 'Array of note IDs to export',
-                            },
-                            format: {
-                                type: 'string',
-                                enum: ['md', 'html'],
-                                default: 'md',
-                                description: 'Export format (markdown or HTML)',
-                            },
-                            includeMetadata: {
-                                type: 'boolean',
-                                default: true,
-                                description: 'Include note metadata in export',
-                            },
-                            includeToc: {
-                                type: 'boolean',
-                                default: false,
-                                description: 'Include table of contents',
-                            },
-                        },
-                        required: ['noteIds'],
-                    },
-                },
-            ],
-        }));
     }
 
     private async getAllNotes(): Promise<NoteWithMetadata[]> {

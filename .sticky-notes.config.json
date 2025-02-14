@@ -1,6 +1,6 @@
 {
     "db": {
-        "root": "C:/Users/User/Documents",
+        "root": "%USERPROFILE%/Documents",
         "path": "sticky-notes.db",
         "timeout": 10000,
         "verbose": false
