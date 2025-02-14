@@ -5,6 +5,49 @@ All notable changes to the Sticky Notes MCP Server will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2024-02-15
+
+### Added
+
+- Enhanced WebSocket implementation:
+  - Robust reconnection strategy with exponential backoff
+  - Message queuing for handling disconnections
+  - Real-time note synchronization
+  - Improved error handling and connection management
+- React-based WebSocket integration:
+  - Custom useWebSocket hook
+  - Real-time UI updates
+  - Connection status management
+- Theme support:
+  - Light/dark mode toggle
+  - Persistent theme preferences
+  - Dynamic theme switching
+- Advanced UI features:
+  - Markdown preview in note editor
+  - Bulk actions for notes (delete, color change, export)
+  - Enhanced filtering and sorting capabilities
+  - Improved pagination controls
+- Export functionality:
+  - Export single or multiple notes
+  - Markdown format support
+  - Customizable file naming
+
+### Changed
+
+- Improved WebSocket connection handling
+- Enhanced error recovery mechanisms
+- Optimized real-time updates
+- Refined UI/UX for note management
+- Updated theme system for better consistency
+
+### Fixed
+
+- WebSocket reconnection issues
+- Theme persistence across sessions
+- Note synchronization edge cases
+- Export filename handling
+- Markdown preview rendering issues
+
 ## [1.0.0] - 2024-02-14
 
 ### Added

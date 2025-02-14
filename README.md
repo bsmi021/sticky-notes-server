@@ -6,6 +6,20 @@ A MCP (Model Context Protocol) server for managing sticky notes. This project pr
 
 ## Features
 
+- **Enhanced WebSocket Support**:
+  - Real-time note synchronization
+  - Robust reconnection strategy
+  - Message queuing for offline handling
+  - Connection status management
+- **Theme System**:
+  - Light/dark mode support
+  - Theme persistence
+  - Dynamic theme switching
+- **Advanced UI Features**:
+  - Markdown preview in editor
+  - Bulk actions (delete, color, export)
+  - Enhanced filtering and sorting
+  - Improved pagination
 - **MCP Development**: Implements MCP protocol endpoints and tool handlers (e.g., create-note, update-note, delete-note, search-notes, list-conversations).
 - **REST API**: Supports full CRUD operations for notes, sections, and tags via Express.
 - **WebSocket Support**: Optional real-time capabilities through a built-in WebSocket server.
@@ -20,6 +34,10 @@ A MCP (Model Context Protocol) server for managing sticky notes. This project pr
 - **Conversations Management**: Enhanced conversation tracking with metadata (total notes, creation date, last update).
 - **Markdown Support**: Full markdown rendering for note content with preview capabilities.
 - **Advanced Filtering**: Combined filtering by tags, conversations, and text search.
+- **Export Capabilities**:
+  - Single/multiple note export
+  - Markdown format support
+  - Custom filename options
 
 ---
 
@@ -143,7 +161,7 @@ If a configured port is in use, the server will:
 
 For example, if port 3000 is in use, the server might use 3001 and log:
 
-```
+```bash
 Web UI running at http://localhost:3001 (original port 3000 was in use)
 ```
 
@@ -375,7 +393,7 @@ If published as an NPX package (Not implemented yet):
 
 ### Project Structure
 
-```
+```bash
 sticky-notes-server/
 ├── package.json
 ├── tsconfig.json
@@ -463,3 +481,98 @@ For issues, questions, or contributions:
 1. Check the [Issues](https://github.com/your-repo/sticky-notes-server/issues) section
 2. Create a new issue if needed
 3. Join our community discussions
+
+## WebSocket Implementation
+
+### Client-Side Integration
+
+The application includes a custom React hook for WebSocket management:
+
+```typescript
+const { connectionStatus, sendMessage, lastMessage } = useWebSocket({
+    url: `ws://localhost:${wsPort}`,
+    onMessage: handleMessage,
+    reconnectAttempts: 5,
+    reconnectInterval: 1000
+});
+```
+
+### Message Types
+
+1. **Client Messages**:
+   - `NOTE_CREATE`: Create new note
+   - `NOTE_UPDATE`: Update existing note
+   - `NOTE_DELETE`: Delete note
+   - `SYNC_REQUEST`: Request sync
+
+2. **Server Messages**:
+   - `NOTE_CREATED`: Broadcast new note
+   - `NOTE_UPDATED`: Broadcast update
+   - `NOTE_DELETED`: Broadcast deletion
+   - `SYNC_RESPONSE`: Sync data
+   - `ERROR`: Error information
+
+### Reconnection Strategy
+
+The WebSocket implementation includes a sophisticated reconnection strategy:
+
+- Exponential backoff
+- Configurable retry attempts
+- Connection status tracking
+- Message queuing during disconnection
+
+## Theme System
+
+The application includes a comprehensive theme system:
+
+```javascript
+const ThemeProvider = ({ children }) => {
+    const [theme, setTheme] = React.useState(() => {
+        const savedTheme = localStorage.getItem('theme');
+        return savedTheme || 
+               (window.matchMedia('(prefers-color-scheme: dark)').matches 
+                ? 'dark' : 'light');
+    });
+    // ... theme logic
+};
+```
+
+### Theme Features
+
+- System preference detection
+- Local storage persistence
+- Dynamic CSS class switching
+- Smooth transitions
+- Dark/light mode toggle
+
+## Bulk Actions
+
+The application supports bulk operations:
+
+- **Selection**: Multi-select notes
+- **Actions**:
+  - Delete multiple notes
+  - Change color for multiple notes
+  - Export selected notes
+- **UI**: Dedicated bulk actions toolbar
+
+## Export Functionality
+
+Enhanced export capabilities:
+
+```javascript
+const exportOptions = {
+    format: 'md',
+    includeMetadata: true,
+    includeToc: false,
+    filename: 'custom_name.md'
+};
+```
+
+### Export Features
+
+- Single note export
+- Multiple note export
+- Custom filename support
+- Markdown formatting
+- Metadata inclusion options
