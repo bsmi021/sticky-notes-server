@@ -91,15 +91,20 @@ const ConversationsList = React.memo(({ selectedConversation, conversations, onC
             </button>
             {conversations.map(conv => (
                 <button
-                    key={conv}
-                    className={`w-full text-left px-2 py-1.5 rounded text-sm truncate ${selectedConversation === conv
+                    key={conv.conversationId}
+                    className={`w-full text-left px-2 py-1.5 rounded text-sm ${selectedConversation === conv.conversationId
                         ? 'bg-accent-primary text-white'
                         : 'hover:bg-tertiary'
                         }`}
-                    onClick={() => onConversationClick(conv)}
-                    title={conv}
+                    onClick={() => onConversationClick(conv.conversationId)}
                 >
-                    {conv}
+                    <div className="flex justify-between items-center">
+                        <span className="truncate" title={conv.conversationId}>{conv.conversationId}</span>
+                        <span className="text-xs opacity-75">{conv.totalNotes}</span>
+                    </div>
+                    <div className="text-xs opacity-60 mt-0.5">
+                        Last updated: {new Date(conv.lastUpdated).toLocaleDateString()}
+                    </div>
                 </button>
             ))}
         </div>
