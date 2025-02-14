@@ -5,10 +5,24 @@ All notable changes to the Sticky Notes MCP Server will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2024-02-14
 
 ### Added
 
+- Client-side pagination with customizable items per page
+- Enhanced conversation management:
+  - New `/api/conversations` endpoint with metadata
+  - Conversation tracking with total notes count
+  - First creation and last update timestamps
+  - Improved sidebar organization
+- Improved tag search functionality:
+  - Server-side tag deduplication
+  - Combined filtering with conversations
+  - Enhanced query performance
+- Full markdown support:
+  - Live preview in note editor
+  - Markdown rendering in note display
+  - Export notes as markdown
 - Automatic port scanning functionality when configured ports are in use
 - Configuration file support with multiple lookup locations
 - Hierarchical configuration system (ENV > Config File > Defaults)
@@ -30,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Enhanced pagination response format to include total items and pages
+- Improved conversation list endpoint with detailed metadata
 - Made WebSocket server optional and configurable
 - Made Full-Text Search (FTS) optional and configurable
 - Improved configuration system with clear precedence
@@ -40,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Tag search parameter handling and deduplication
 - Port conflict issues with automatic port scanning
 - Database connection handling improvements
 - WebSocket server cleanup on shutdown

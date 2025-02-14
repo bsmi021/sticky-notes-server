@@ -87,7 +87,7 @@ const ThemeToggle = () => {
 };
 
 // Note component
-const Note = ({ note, onEdit, onDelete, onColorChange, onTagClick, onConversationClick, isSelected, onSelect, bulkActionMode }) => {
+const Note = ({ note, onEdit, onDelete, onColorChange, onTagClick, onConversationClick, isSelected, onSelect, bulkActionMode, onExport }) => {
     const [isColorPickerOpen, setIsColorPickerOpen] = React.useState(false);
     const { theme } = React.useContext(ThemeContext);
     const isDark = theme === 'dark';
@@ -95,6 +95,18 @@ const Note = ({ note, onEdit, onDelete, onColorChange, onTagClick, onConversatio
     const baseColor = note.color_hex || NOTE_COLORS[0].hex;
     const headerColor = `${baseColor}40`; // Slightly darker for header
     const bodyColor = `${baseColor}20`;   // Lighter for content
+
+    // Create a ref for the content div to handle markdown content
+    const contentRef = React.useRef(null);
+
+    // Effect to render markdown content
+    React.useEffect(() => {
+        if (contentRef.current) {
+            window.renderMarkdown(note.content).then(html => {
+                contentRef.current.innerHTML = html;
+            });
+        }
+    }, [note.content]);
 
     return (
         <div
@@ -133,6 +145,20 @@ const Note = ({ note, onEdit, onDelete, onColorChange, onTagClick, onConversatio
                 <div className="flex justify-between items-start flex-1 min-w-0">
                     <h3 className="font-bold text-lg flex-grow pr-4 truncate">{note.title}</h3>
                     <div className="flex space-x-2 flex-shrink-0">
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onExport(note);
+                            }}
+                            className="bg-white/90 hover:bg-white text-gray-700 hover:text-accent-primary transition-all p-1.5 rounded-full flex items-center justify-center shadow-sm"
+                            title="Export note"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                        </button>
                         <div className="relative">
                             <button
                                 onClick={(e) => {
@@ -200,7 +226,10 @@ const Note = ({ note, onEdit, onDelete, onColorChange, onTagClick, onConversatio
                 style={{ backgroundColor: bodyColor }}
             >
                 <div className="h-full overflow-y-auto p-3 flex flex-col">
-                    <p className="text-sm mb-2 flex-grow">{note.content}</p>
+                    <div
+                        ref={contentRef}
+                        className="text-sm mb-2 flex-grow prose prose-sm dark:prose-invert max-w-none"
+                    />
 
                     <div className="flex flex-wrap gap-1 mt-2">
                         {note.tags && note.tags.map(tag => (
@@ -243,6 +272,17 @@ const NoteModal = ({ note, onClose, onSave }) => {
     const [tags, setTags] = React.useState(note && note.tags ? note.tags : []);
     const [newTag, setNewTag] = React.useState('');
     const [conversationId, setConversationId] = React.useState(note && note.conversation_id ? note.conversation_id : 'default');
+    const [isPreview, setIsPreview] = React.useState(false);
+    const previewRef = React.useRef(null);
+
+    // Effect to render markdown preview
+    React.useEffect(() => {
+        if (isPreview && previewRef.current) {
+            window.renderMarkdown(content).then(html => {
+                previewRef.current.innerHTML = html;
+            });
+        }
+    }, [content, isPreview]);
 
     const handleSave = () => {
         onSave({
@@ -295,13 +335,28 @@ const NoteModal = ({ note, onClose, onSave }) => {
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium mb-1">Content</label>
-                            <textarea
-                                placeholder="Note Content"
-                                className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-primary bg-secondary border-default h-40"
-                                value={content}
-                                onChange={(e) => setContent(e.target.value)}
-                            />
+                            <div className="flex justify-between items-center mb-1">
+                                <label className="block text-sm font-medium">Content</label>
+                                <button
+                                    onClick={() => setIsPreview(!isPreview)}
+                                    className="text-sm text-accent-primary hover:text-accent-hover"
+                                >
+                                    {isPreview ? 'Edit' : 'Preview'}
+                                </button>
+                            </div>
+                            {isPreview ? (
+                                <div
+                                    ref={previewRef}
+                                    className="w-full px-4 py-2 border rounded-lg bg-secondary border-default h-40 overflow-y-auto prose prose-sm dark:prose-invert max-w-none"
+                                />
+                            ) : (
+                                <textarea
+                                    placeholder="Note Content (Markdown supported)"
+                                    className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-primary bg-secondary border-default h-40 font-mono"
+                                    value={content}
+                                    onChange={(e) => setContent(e.target.value)}
+                                />
+                            )}
                         </div>
 
                         <div>
@@ -487,6 +542,29 @@ const NotesAPI = {
             signal
         });
         if (!response.ok) throw new Error('Failed to update notes color');
+    },
+
+    async exportNotes(noteIds, options = {}) {
+        const response = await fetch('/api/notes/export', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ noteIds, ...options })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to export notes');
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = options.filename || 'notes.md';
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
     }
 };
 
@@ -521,7 +599,7 @@ const SORT_OPTIONS = {
 };
 
 // BulkActionsToolbar component
-const BulkActionsToolbar = ({ onColorChange, onDelete, selectedCount, onClearSelection, noteColors }) => {
+const BulkActionsToolbar = ({ onColorChange, onDelete, onExport, selectedCount, onClearSelection, noteColors }) => {
     const [isColorPickerOpen, setIsColorPickerOpen] = React.useState(false);
 
     if (selectedCount === 0) return null;
@@ -529,6 +607,13 @@ const BulkActionsToolbar = ({ onColorChange, onDelete, selectedCount, onClearSel
     return (
         <div className="flex items-center gap-4 mb-4 p-4 bg-secondary rounded-lg shadow-lg">
             <span className="text-sm">{selectedCount} notes selected</span>
+
+            <button
+                onClick={onExport}
+                className="px-4 py-2 bg-accent-primary text-white rounded hover:bg-accent-hover transition-colors"
+            >
+                Export Selected
+            </button>
 
             <div className="relative">
                 <button
@@ -1150,7 +1235,7 @@ const Sidebar = ({ filters, onUpdateFilters, uniqueTags, uniqueConversations, no
 };
 
 // NotesGrid Component
-const NotesGrid = React.memo(({ notes, onEdit, onDelete, onColorChange, onTagClick, onConversationClick, selectedNotes, onSelectNote, bulkActionMode }) => {
+const NotesGrid = React.memo(({ notes, onEdit, onDelete, onColorChange, onTagClick, onConversationClick, selectedNotes, onSelectNote, bulkActionMode, onExport }) => {
     if (!notes.length) {
         return (
             <div className="text-center text-gray-500 mt-8">
@@ -1173,6 +1258,7 @@ const NotesGrid = React.memo(({ notes, onEdit, onDelete, onColorChange, onTagCli
                     isSelected={selectedNotes.has(note.id)}
                     onSelect={onSelectNote}
                     bulkActionMode={bulkActionMode}
+                    onExport={onExport}
                 />
             ))}
         </div>
@@ -1275,6 +1361,30 @@ const App = () => {
         });
     };
 
+    const handleExportNote = async (note) => {
+        try {
+            await NotesAPI.exportNotes([note.id], {
+                filename: `${note.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.md`
+            });
+        } catch (error) {
+            console.error('Error exporting note:', error);
+            // You might want to add proper error handling UI here
+        }
+    };
+
+    const handleBulkExport = async () => {
+        try {
+            await NotesAPI.exportNotes(Array.from(selectedNotes), {
+                filename: `notes_export_${new Date().toISOString().split('T')[0]}.md`
+            });
+            setSelectedNotes(new Set());
+            setBulkActionMode(false);
+        } catch (error) {
+            console.error('Error exporting notes:', error);
+            // You might want to add proper error handling UI here
+        }
+    };
+
     return (
         <ThemeProvider>
             <div className="min-h-screen bg-default flex">
@@ -1305,7 +1415,7 @@ const App = () => {
 
                             <button
                                 onClick={handleNewNote}
-                                className="primary px-4 py-2 rounded hover:bg-accent-hover transition-colors"
+                                className="px-4 py-2 rounded bg-accent-primary text-white hover:bg-accent-hover transition-colors"
                             >
                                 New Note
                             </button>
@@ -1315,6 +1425,7 @@ const App = () => {
                             <BulkActionsToolbar
                                 onColorChange={handleBulkColorChange}
                                 onDelete={handleBulkDelete}
+                                onExport={handleBulkExport}
                                 selectedCount={selectedNotes.size}
                                 onClearSelection={() => {
                                     setSelectedNotes(new Set());
@@ -1351,6 +1462,7 @@ const App = () => {
                                 selectedNotes={selectedNotes}
                                 onSelectNote={handleSelectNote}
                                 bulkActionMode={bulkActionMode}
+                                onExport={handleExportNote}
                             />
                         )}
                     </div>
