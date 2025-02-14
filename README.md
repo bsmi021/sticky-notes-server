@@ -10,12 +10,16 @@ A MCP (Model Context Protocol) server for managing sticky notes. This project pr
 - **REST API**: Supports full CRUD operations for notes, sections, and tags via Express.
 - **WebSocket Support**: Optional real-time capabilities through a built-in WebSocket server.
 - **Full-Text Search**: Optional SQLite FTS5 for efficient note searches.
-- **Tag Management**: Hierarchical tag system with parent-child relationships.
+- **Tag Management**: Hierarchical tag system with parent-child relationships and improved tag search capabilities.
 - **Section Organization**: Group notes into customizable sections.
 - **Color Coding**: Support for color-coded notes and bulk color operations.
 - **Persistency**: Uses SQLite (via better-sqlite3) for local storage.
 - **UI Integration**: Serves a React-based user interface from the `/public` folder.
 - **Port Scanning**: Automatically finds available ports if configured ports are in use.
+- **Pagination**: Client-side pagination with customizable items per page.
+- **Conversations Management**: Enhanced conversation tracking with metadata (total notes, creation date, last update).
+- **Markdown Support**: Full markdown rendering for note content with preview capabilities.
+- **Advanced Filtering**: Combined filtering by tags, conversations, and text search.
 
 ---
 
@@ -213,7 +217,7 @@ Deletes a specific note.
 
 ### search-notes
 
-Searches for notes based on various criteria.
+Searches for notes based on various criteria. Supports combined filtering by tags, conversations, and text search.
 
 ```json
 {
@@ -228,7 +232,7 @@ Searches for notes based on various criteria.
 
 ### list-conversations
 
-Returns a distinct list of all conversation IDs in the system.
+Returns a list of all conversation IDs in the system with metadata.
 
 ```json
 {
@@ -241,9 +245,18 @@ Response example:
 
 ```json
 [
-  "conv123",
-  "meeting-2024",
-  "project-x"
+  {
+    "conversationId": "conv123",
+    "totalNotes": 5,
+    "firstCreated": 1707753600,
+    "lastUpdated": 1707840000
+  },
+  {
+    "conversationId": "meeting-2024",
+    "totalNotes": 3,
+    "firstCreated": 1707667200,
+    "lastUpdated": 1707753600
+  }
 ]
 ```
 
@@ -258,32 +271,26 @@ The server exposes several REST endpoints:
 - **GET /api/notes**
   - Query parameters:
     - `search`: Text search query
-    - `tags`: Array of tag names
+    - `tags`: Array of tag names (deduplication handled server-side)
     - `conversation`: Conversation ID
     - `color`: Color hex code
     - `startDate`: Filter by creation date
     - `page`: Page number (default: 1)
     - `limit`: Items per page (default: 10)
     - `sort`: Sort field and direction (e.g., "updated_at DESC")
+  - Response includes pagination metadata:
 
-- **POST /api/notes**
-
-  ```json
-  {
-    "title": "Meeting Notes",
-    "content": "Discussed Q4 plans.",
-    "conversation_id": "conv123",
-    "tags": ["meeting", "planning"],
-    "color_hex": "#FFA500",
-    "section_id": 1
-  }
-  ```
-
-- **PUT /api/notes/:id**
-- **DELETE /api/notes/:id**
-- **PATCH /api/notes/:id/color**
-- **PATCH /api/notes/:id/section**
-- **PATCH /api/notes/bulk/color**
+    ```json
+    {
+      "notes": [...],
+      "pagination": {
+        "total": 100,
+        "page": 1,
+        "limit": 10,
+        "totalPages": 10
+      }
+    }
+    ```
 
 ### Sections Endpoints
 
@@ -298,6 +305,24 @@ The server exposes several REST endpoints:
 - **GET /api/tags**
 - **GET /api/tags/hierarchy**
 - **PATCH /api/tags/:id/parent**
+
+### Conversations Endpoints
+
+- **GET /api/conversations**
+  - Returns list of conversations with metadata:
+
+    ```json
+    {
+      "conversations": [
+        {
+          "conversationId": "conv123",
+          "totalNotes": 5,
+          "firstCreated": 1707753600,
+          "lastUpdated": 1707840000
+        }
+      ]
+    }
+    ```
 
 ---
 
@@ -360,7 +385,12 @@ sticky-notes-server/
     ├── public/             // React-based UI
     │   ├── index.html
     │   ├── app.js
-    │   └── components/     // React components
+    │   ├── components/     // React components
+    │   │   ├── Note.js    // Note component with markdown support
+    │   │   ├── PaginationControls.js
+    │   │   └── Sidebar.js // Enhanced sidebar with conversations
+    │   └── utils/
+    │       └── markdown.ts // Markdown rendering utilities
     └── migrations/         // Database migrations
 ```
 
