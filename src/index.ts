@@ -1084,16 +1084,75 @@ class StickyNotesServer {
                     }
                 }
                 case 'search-notes': {
-                    const { query, tags, projectId, conversationId } = args as any;
-                    let results;
+                    const { query, tags, conversationId } = args as any;
+                    let results: Array<{ id: number; tags?: string[] }>;
                     try {
+                        // Base query with all necessary joins
+                        let baseQuery = 'SELECT DISTINCT notes.* FROM notes';
+                        const params: any[] = [];
+                        const conditions: string[] = [];
+
+                        // Handle tag filtering
+                        if (tags && Array.isArray(tags) && tags.length > 0) {
+                            const tagArray = tags.map(tag => String(tag));
+                            baseQuery += ' JOIN note_tags ON notes.id = note_tags.note_id JOIN tags ON note_tags.tag_id = tags.id';
+                            conditions.push(`tags.name IN (${tagArray.map(() => '?').join(', ')})`);
+                            params.push(...tagArray);
+                        }
+
+                        // Handle text search
                         if (query) {
-                            results = preparedStatements.searchNotes.all({ query, limit: 100, offset: 0 });
-                        } else if (conversationId) {
-                            results = preparedStatements.getNotesByConversation.all({ conversationId });
-                        } else {
+                            baseQuery += ' JOIN notes_fts ON notes.id = notes_fts.rowid';
+                            conditions.push('notes_fts MATCH ?');
+                            params.push(query);
+                        }
+
+                        // Handle conversation filter
+                        if (conversationId) {
+                            conditions.push('notes.conversation_id = ?');
+                            params.push(conversationId);
+                        }
+
+                        // Add WHERE clause if there are conditions
+                        if (conditions.length > 0) {
+                            baseQuery += ' WHERE ' + conditions.join(' AND ');
+                        }
+
+                        // Add ordering and limit
+                        baseQuery += ' ORDER BY notes.updated_at DESC LIMIT 100';
+
+                        // Execute query with type assertion
+                        results = db.prepare(baseQuery).all(...params) as Array<{ id: number; tags?: string[] }>;
+
+                        // Fetch tags for results
+                        const noteIds = results.map(note => note.id);
+                        if (noteIds.length > 0) {
+                            const tagQuery = `
+                                SELECT note_tags.note_id, tags.name 
+                                FROM note_tags 
+                                JOIN tags ON note_tags.tag_id = tags.id 
+                                WHERE note_tags.note_id IN (${noteIds.map(() => '?').join(',')})
+                            `;
+                            const tagResults = db.prepare(tagQuery).all(...noteIds) as { note_id: number; name: string }[];
+
+                            // Group tags by note
+                            const tagsByNote = new Map<number, string[]>();
+                            for (const { note_id, name } of tagResults) {
+                                if (!tagsByNote.has(note_id)) {
+                                    tagsByNote.set(note_id, []);
+                                }
+                                tagsByNote.get(note_id)!.push(name);
+                            }
+
+                            // Add tags to notes
+                            for (const note of results) {
+                                note.tags = tagsByNote.get(note.id) || [];
+                            }
+                        }
+
+                        if (!results || !results.length) {
                             return {
-                                content: [{ type: 'text', text: 'No search criteria provided' }],
+                                content: [{ type: 'text', text: 'No notes found matching the criteria' }],
                             };
                         }
 
