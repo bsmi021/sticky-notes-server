@@ -54,6 +54,10 @@ interface NoteWithMetadata extends Note {
     updatedAt: number;
 }
 
+interface ConversationRow {
+    conversation_id: string;
+}
+
 const DB_ROOT = process.env.DB_ROOT || process.env.USERPROFILE || process.env.HOME || '';
 // Database Configuration
 const DB_PATH = join(config.db.root, config.db.path);
@@ -263,7 +267,10 @@ const preparedStatements = {
         UPDATE tags 
         SET parent_id = @parent_id 
         WHERE id = @id
-    `)
+    `),
+    getUniqueConversations: db.prepare(`
+        SELECT DISTINCT conversation_id FROM notes ORDER BY conversation_id ASC
+    `),
 };
 
 // MCP Server Implementation
@@ -818,6 +825,18 @@ class StickyNotesServer {
         // Root route
         this.expressApp.get('/', (req: Request, res: Response) => {
             res.sendFile(join(publicPath, 'index.html'));
+        });
+
+        // Add conversations endpoint
+        this.expressApp.get('/api/conversations', (req: Request, res: Response) => {
+            try {
+                const rows = preparedStatements.getUniqueConversations.all() as ConversationRow[];
+                const conversations = rows.map(row => row.conversation_id);
+                res.json({ conversations });
+            } catch (error) {
+                console.error('Error fetching conversations:', error);
+                res.status(500).json({ error: 'Failed to fetch conversations' });
+            }
         });
 
         // Register error handler after all routes
