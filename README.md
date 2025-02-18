@@ -20,6 +20,7 @@ A MCP (Model Context Protocol) server for managing sticky notes. This project pr
   - Bulk actions (delete, color, export)
   - Enhanced filtering and sorting
   - Improved pagination
+  - Automatic filter reset when deleting last note in a conversation/tag
 - **MCP Development**: Implements MCP protocol endpoints and tool handlers (e.g., create-note, update-note, delete-note, search-notes, list-conversations).
 - **REST API**: Supports full CRUD operations for notes, sections, and tags via Express.
 - **WebSocket Support**: Optional real-time capabilities through a built-in WebSocket server.

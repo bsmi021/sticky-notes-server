@@ -9,6 +9,9 @@ import {
     ListToolsRequestSchema,
     McpError,
     ReadResourceRequestSchema,
+    Request as McpRequest,
+    ServerRequest,
+    ServerResult,
 } from '@modelcontextprotocol/sdk/types.js';
 import Database from 'better-sqlite3';
 import express, { NextFunction, RequestHandler } from 'express';
@@ -61,6 +64,17 @@ interface NoteWithMetadata extends Note {
 
 interface ConversationRow {
     conversation_id: string;
+}
+
+interface ResourceRequest extends McpRequest {
+    type: string;
+    content?: any;
+    id?: string;
+    params?: {
+        query?: string;
+        body?: any;
+        id?: string;
+    };
 }
 
 const DB_ROOT = process.env.DB_ROOT || process.env.USERPROFILE || process.env.HOME || '';
@@ -587,114 +601,134 @@ class StickyNotesServer {
 
         this.expressApp.get('/api/notes', getNotes as express.RequestHandler);
 
-        this.expressApp.post('/api/notes', async (req: Request, res: Response, next: NextFunction) => {
+        this.expressApp.post('/api/notes', async (req: Request, res: Response) => {
             try {
-                const { title, content, tags = [], conversation_id = 'default', color_hex, section_id } = req.body;
+                const note = req.body as Note;
+                const result = preparedStatements.insertNote.run({
+                    title: note.title,
+                    content: note.content,
+                    conversationId: note.conversation_id,
+                    color_hex: note.color_hex || null
+                });
 
-                console.error('Received tags:', tags); // Debug log
+                const id = result.lastInsertRowid;
+                const noteCount = this.getConversationNoteCount(note.conversation_id);
+                this.webSocketServer.broadcastConversationUpdate({
+                    conversation_id: note.conversation_id,
+                    note_count: noteCount
+                });
 
-                // Insert the note
-                const result = db.prepare(`
-                    INSERT INTO notes (title, content, conversation_id, color_hex, section_id)
-                    VALUES (?, ?, ?, ?, ?)
-                `).run(title, content, conversation_id, color_hex || null, section_id || null);
-
-                const noteId = result.lastInsertRowid;
-
-                // Handle tags
-                if (tags.length > 0) {
-                    const insertTag = db.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)');
-                    const getTagId = db.prepare('SELECT id FROM tags WHERE name = ?');
-                    const linkNoteTag = db.prepare('INSERT INTO note_tags (note_id, tag_id) VALUES (?, ?)');
-
-                    for (const tagName of tags) {
-                        console.error('Processing tag:', tagName); // Debug log
-                        insertTag.run(tagName);
-                        const tag = getTagId.get(tagName) as { id: number };
-                        console.error('Retrieved tag:', tag); // Debug log
-                        linkNoteTag.run(noteId, tag.id);
+                // Handle WebSocket broadcasts
+                if (note.tags && note.tags.length > 0) {
+                    for (const tagName of note.tags) {
+                        let tag = preparedStatements.getTagByName.get({ name: tagName }) as TagRecord;
+                        if (!tag) {
+                            const result = preparedStatements.insertTag.run({ name: tagName });
+                            tag = { id: result.lastInsertRowid as number, name: tagName };
+                            this.webSocketServer.broadcastTagCreation({
+                                name: tagName,
+                                note_count: 1
+                            });
+                        } else {
+                            const tagCount = this.getTagNoteCount(tagName);
+                            this.webSocketServer.broadcastTagUpdate({
+                                name: tagName,
+                                note_count: tagCount
+                            });
+                        }
                     }
                 }
 
-                // Fetch the created note with its tags
-                const note = db.prepare('SELECT * FROM notes WHERE id = ?').get(noteId) as Note;
-                const noteTags = db.prepare(`
-                    SELECT tags.name 
-                    FROM note_tags 
-                    JOIN tags ON note_tags.tag_id = tags.id 
-                    WHERE note_tags.note_id = ?
-                `).all(noteId) as { name: string }[];
-
-                console.error('Retrieved tags after save:', noteTags); // Debug log
-
-                note.tags = noteTags.map(t => t.name);
-
-                res.status(201).json(note);
+                res.status(201).json({ success: true, id });
             } catch (error) {
                 console.error('Error creating note:', error);
-                next(error);
+                res.status(500).json({ success: false, error: 'Failed to create note' });
             }
         });
 
         this.expressApp.put('/api/notes/:id', async (req: Request, res: Response) => {
             try {
                 const { id } = req.params;
-                const { title, content, tags = [], conversation_id, color_hex } = req.body;
+                const note = req.body as Note;
 
-                // Update the note
-                db.prepare(`
-                    UPDATE notes 
-                    SET title = ?, 
-                        content = ?, 
-                        conversation_id = ?,
-                        color_hex = ?,
-                        updated_at = strftime('%s', 'now')
-                    WHERE id = ?
-                `).run(title, content, conversation_id, color_hex, id);
+                preparedStatements.updateNote.run({ id, content: note.content });
 
-                // Handle tags
-                db.prepare('DELETE FROM note_tags WHERE note_id = ?').run(id);
+                if (note.tags) {
+                    // Handle tag updates through WebSocket
+                    const existingTags = preparedStatements.getTagsByNoteId.all({ note_id: id }) as { name: string }[];
+                    const existingTagNames = existingTags.map(t => t.name);
+                    const newTags = note.tags.filter(tag => !existingTagNames.includes(tag));
+                    const removedTags = existingTagNames.filter(tag => !note.tags!.includes(tag));
 
-                if (tags.length > 0) {
-                    const insertTag = db.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)');
-                    const getTagId = db.prepare('SELECT id FROM tags WHERE name = ?');
-                    const linkNoteTag = db.prepare('INSERT INTO note_tags (note_id, tag_id) VALUES (?, ?)');
+                    for (const tagName of newTags) {
+                        let tag = preparedStatements.getTagByName.get({ name: tagName }) as TagRecord;
+                        if (!tag) {
+                            const result = preparedStatements.insertTag.run({ name: tagName });
+                            tag = { id: result.lastInsertRowid as number, name: tagName };
+                            this.webSocketServer.broadcastTagCreation({
+                                name: tagName,
+                                note_count: 1
+                            });
+                        }
+                        const tagCount = this.getTagNoteCount(tagName);
+                        this.webSocketServer.broadcastTagUpdate({
+                            name: tagName,
+                            note_count: tagCount
+                        });
+                    }
 
-                    for (const tagName of tags) {
-                        insertTag.run(tagName);
-                        const tag = getTagId.get(tagName) as { id: number };
-                        linkNoteTag.run(id, tag.id);
+                    for (const tagName of removedTags) {
+                        const tagCount = this.getTagNoteCount(tagName);
+                        this.webSocketServer.broadcastTagUpdate({
+                            name: tagName,
+                            note_count: tagCount
+                        });
                     }
                 }
 
-                // Fetch the updated note with its tags
-                const note = db.prepare('SELECT * FROM notes WHERE id = ?').get(id) as Note;
-                const noteTags = db.prepare(`
-                    SELECT tags.name 
-                    FROM note_tags 
-                    JOIN tags ON note_tags.tag_id = tags.id 
-                    WHERE note_tags.note_id = ?
-                `).all(id) as { name: string }[];
-
-                note.tags = noteTags.map(t => t.name);
-
-                res.json(note);
+                res.json({ success: true, id });
             } catch (error) {
                 console.error('Error updating note:', error);
-                res.status(500).json({ error: 'Failed to update note' });
+                res.status(500).json({ success: false, error: 'Failed to update note' });
             }
         });
 
-        this.expressApp.delete('/api/notes/:id', (req: Request, res: Response) => {
-            const { id } = req.params;
+        this.expressApp.delete('/api/notes/:id', (async (req: Request, res: Response, next: NextFunction) => {
             try {
+                const { id } = req.params;
+                const note = preparedStatements.getNoteById.get({ id }) as Note;
+                if (!note) {
+                    return res.status(404).json({ success: false, error: 'Note not found' });
+                }
+
+                const tags = preparedStatements.getTagsByNoteId.all({ note_id: id }) as { name: string }[];
                 preparedStatements.deleteNote.run({ id });
+
+                // Broadcast note deletion
+                this.webSocketServer.broadcastNoteDeleted(note);
+
+                // Update conversation count
+                const conversationCount = this.getConversationNoteCount(note.conversation_id);
+                this.webSocketServer.broadcastConversationUpdate({
+                    conversation_id: note.conversation_id,
+                    note_count: conversationCount
+                });
+
+                // Update tag counts
+                for (const tag of tags) {
+                    const tagCount = this.getTagNoteCount(tag.name);
+                    this.webSocketServer.broadcastTagUpdate({
+                        name: tag.name,
+                        note_count: tagCount
+                    });
+                }
+
                 res.json({ success: true });
             } catch (error) {
                 console.error('Error deleting note:', error);
-                res.status(500).json({ error: 'Failed to delete note' });
+                res.status(500).json({ success: false, error: 'Failed to delete note' });
             }
-        });
+        }) as RequestHandler);
 
         // Section Management
         this.expressApp.get('/api/sections', (req: Request, res: Response) => {
@@ -953,64 +987,64 @@ class StickyNotesServer {
     }
 
     private setupResourceHandlers() {
+        // List resources handler
         this.server.setRequestHandler(ListResourcesRequestSchema, async () => ({
             resources: [],
+            tools: []
         }));
 
-        this.server.setRequestHandler(
-            ListResourceTemplatesRequestSchema,
-            async () => ({
-                resourceTemplates: [
-                    {
-                        uriTemplate: 'notes://{conversationId}',
-                        name: 'Notes by Conversation ID',
+        // List resource templates handler
+        this.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({
+            resourceTemplates: [
+                {
+                    uriTemplate: 'notes://{conversationId}',
+                    name: 'Notes by Conversation ID',
+                    mimeType: 'application/json',
+                    description: 'Returns all notes for a given conversation ID',
+                },
+                {
+                    uriTemplate: 'note://{id}',
+                    name: 'Note by ID',
+                    mimeType: 'application/json',
+                    description: 'Returns a single note by ID',
+                },
+            ],
+            tools: []
+        }));
+
+        // Read resource handler
+        this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+            const uri = request.params.uri;
+
+            if (uri.startsWith('notes://')) {
+                const conversationId = uri.substring('notes://'.length);
+                const notes = preparedStatements.getNotesByConversation.all({ conversationId });
+                return {
+                    contents: [{
+                        uri: uri,
                         mimeType: 'application/json',
-                        description: 'Returns all notes for a given conversation ID',
-                    },
-                    {
-                        uriTemplate: 'note://{id}',
-                        name: 'Note by ID',
-                        mimeType: 'application/json',
-                        description: 'Returns a single note by ID',
-                    },
-
-                ],
-            })
-        );
-
-        this.server.setRequestHandler(
-            ReadResourceRequestSchema,
-            async (request: any) => {
-                const uri = request.params.uri;
-
-                if (uri.startsWith('notes://')) {
-                    const conversationId = uri.substring('notes://'.length);
-                    const notes = preparedStatements.getNotesByConversation.all({ conversationId });
-                    return {
-                        contents: [{
-                            uri: uri,
-                            mimeType: 'application/json',
-                            text: JSON.stringify(notes, null, 2),
-                        }],
-                    };
-                } else if (uri.startsWith('note://')) {
-                    const id = uri.substring('note://'.length);
-                    const note = preparedStatements.getNoteById.get({ id });
-                    if (!note) {
-                        throw new McpError(ErrorCode.MethodNotFound, `Note with id ${id} not found`);
-                    }
-                    return {
-                        contents: [{
-                            uri: uri,
-                            mimeType: 'application/json',
-                            text: JSON.stringify(note, null, 2),
-                        }],
-                    };
-                } else {
-                    throw new McpError(ErrorCode.InvalidRequest, `Invalid URI: ${uri}`);
+                        text: JSON.stringify(notes, null, 2),
+                    }],
+                    tools: []
+                };
+            } else if (uri.startsWith('note://')) {
+                const id = uri.substring('note://'.length);
+                const note = preparedStatements.getNoteById.get({ id });
+                if (!note) {
+                    throw new McpError(ErrorCode.InvalidParams, `Note with id ${id} not found`);
                 }
+                return {
+                    contents: [{
+                        uri: uri,
+                        mimeType: 'application/json',
+                        text: JSON.stringify(note, null, 2),
+                    }],
+                    tools: []
+                };
+            } else {
+                throw new McpError(ErrorCode.InvalidParams, `Invalid URI: ${uri}`);
             }
-        );
+        });
     }
 
     private setupToolHandlers() {
@@ -1018,396 +1052,176 @@ class StickyNotesServer {
             tools: [
                 {
                     name: 'create-note',
-                    description: 'Creates a new note with optional tags. Using Markdown formatting.\n\n' +
-                        'Required Fields:\n' +
-                        '- title: String (1-100 chars, Generally the name of the conversation)\n' +
-                        '- content: String (markdown supported)\n' +
-                        '- conversationId: String (unique identifier for the conversation, you provide this)\n\n' +
-                        'Optional Fields:\n' +
-                        '- tags: Array of strings\n' +
-                        '- color_hex: String (hex color code). Available colors:\n' +
-                        '  - Yellow: "#FFE999" (default)\n' +
-                        '  - Green: "#A7F3D0"\n' +
-                        '  - Blue: "#93C5FD"\n' +
-                        '  - Red: "#FCA5A5"\n' +
-                        '  - Purple: "#DDD6FE"\n' +
-                        '  - Orange: "#FFB17A"\n\n' +
-                        'Example: { "title": "Meeting Notes", "content": "Discussed Q4 plans", "conversationId": "conv123", "tags": ["meeting", "planning"], "color_hex": "#FFE999" }',
-
+                    description: 'Creates a new note',
                     inputSchema: {
                         type: 'object',
                         properties: {
-                            title: { type: 'string', description: 'REQUIRED. Title of the note. Max 100 characters.' },
-                            content: { type: 'string', description: 'REQUIRED. Content of the note. Supports markdown formatting.' },
-                            conversationId: { type: 'string', description: 'REQUIRED. Conversation ID associated with the note.' },
-                            tags: { type: 'array', items: { type: 'string' }, description: 'Optional. Array of tags to associate with the note.' },
-                            color_hex: {
-                                type: 'string',
-                                description: 'Optional. Hex color code for the note. Available colors: #FFE999 (Yellow, default), #A7F3D0 (Green), #93C5FD (Blue), #FCA5A5 (Red), #DDD6FE (Purple), #FFB17A (Orange).'
-                            }
+                            title: { type: 'string' },
+                            content: { type: 'string' },
+                            conversationId: { type: 'string' },
+                            tags: { type: 'array', items: { type: 'string' } },
+                            color_hex: { type: 'string' }
                         },
-                        required: ['title', 'content', 'conversationId'],
-                    },
+                        required: ['title', 'content', 'conversationId']
+                    }
                 },
                 {
                     name: 'update-note',
-                    description: 'Updates an existing note content.\n\n' +
-                        'Required Fields:\n' +
-                        '- id: String (note identifier)\n' +
-                        '- content: String (markdown supported)\n\n' +
-                        'Example: { "id": "note123", "content": "Updated content with markdown support" }',
+                    description: 'Updates an existing note',
                     inputSchema: {
                         type: 'object',
                         properties: {
-                            id: {
-                                type: 'string',
-                                description: 'REQUIRED. Unique identifier of the note to update.',
-                            },
-                            content: {
-                                type: 'string',
-                                description: 'REQUIRED. New content for the note. Supports markdown formatting.',
-                                minLength: 1
-                            }
+                            id: { type: 'string' },
+                            content: { type: 'string' }
                         },
-                        required: ['id', 'content'],
-                    },
+                        required: ['id', 'content']
+                    }
                 },
                 {
                     name: 'delete-note',
-                    description: 'Deletes a note.\n\n' +
-                        'Required Fields:\n' +
-                        '- id: String (note identifier)\n\n' +
-                        'Example: { "id": "note123" }',
+                    description: 'Deletes a note',
                     inputSchema: {
                         type: 'object',
                         properties: {
-                            id: { type: 'string', description: 'REQUIRED. Unique identifier of the note to delete.' },
+                            id: { type: 'string' }
                         },
-                        required: ['id'],
-                    },
-                },
-                {
-                    name: 'search-notes',
-                    description: 'Searches notes',
-                    inputSchema: {
-                        type: 'object',
-                        properties: {
-                            query: { type: 'string' },
-                            tags: { type: 'array', items: { type: 'string' } },
-                            conversationId: { type: 'string' },
-                        },
-                    },
-                },
-                {
-                    name: 'list-conversations',
-                    description: 'Returns a distinct list of all conversation IDs in the system.\n\n' +
-                        'Returns an array of conversation IDs.\n\n' +
-                        'Example response: ["conv123", "meeting-2024", "project-x"]',
-                    inputSchema: {
-                        type: 'object',
-                        properties: {},
-                    },
-                },
-                {
-                    name: 'export-notes',
-                    description: 'Export notes in markdown or HTML format',
-                    inputSchema: {
-                        type: 'object',
-                        properties: {
-                            noteIds: {
-                                type: 'array',
-                                items: { type: 'number' },
-                                description: 'Array of note IDs to export',
-                            },
-                            format: {
-                                type: 'string',
-                                enum: ['md', 'html'],
-                                default: 'md',
-                                description: 'Export format (markdown or HTML)',
-                            },
-                            includeMetadata: {
-                                type: 'boolean',
-                                default: true,
-                                description: 'Include note metadata in export',
-                            },
-                            includeToc: {
-                                type: 'boolean',
-                                default: false,
-                                description: 'Include table of contents',
-                            },
-                        },
-                        required: ['noteIds'],
-                    },
-                },
-            ],
+                        required: ['id']
+                    }
+                }
+            ]
         }));
 
-        this.server.setRequestHandler(
-            CallToolRequestSchema,
-            async (request) => {
-                if (!request.params?.name) {
-                    throw new McpError(ErrorCode.InvalidRequest, 'Tool name is required');
-                }
-
-                switch (request.params.name) {
-                    case 'create-note': {
-                        const { title, content, conversationId, tags, color_hex } = request.params.arguments as any;
-                        try {
-                            const result = preparedStatements.insertNote.run({
-                                title,
-                                content,
-                                conversationId,
-                                color_hex: color_hex || null
-                            });
-                            const id = result.lastInsertRowid;
-
-                            // Handle tags
-                            if (tags && Array.isArray(tags)) {
-                                // Delete existing tags for the note
-                                preparedStatements.deleteNoteTags.run({ note_id: id });
-
-                                for (const tagName of tags) {
-                                    let tagRecord = preparedStatements.getTagByName.get({ name: tagName }) as TagRecord;
-
-                                    // If tag doesn't exist, create it
-                                    if (!tagRecord) {
-                                        const result = preparedStatements.insertTag.run({ name: tagName });
-                                        tagRecord = { id: result.lastInsertRowid, name: tagName } as TagRecord;
-                                    }
-
-                                    // Insert note tag
-                                    preparedStatements.insertNoteTag.run({ note_id: id, tag_id: tagRecord.id });
-                                }
-                            }
-
-                            // Fetch the complete note with tags for broadcasting
-                            const note = preparedStatements.getNoteById.get({ id }) as Note;
-                            const noteTags = preparedStatements.getTagsByNoteId.all({ note_id: id }) as { name: string }[];
-                            note.tags = noteTags.map(t => t.name);
-
-                            // Broadcast the new note to all WebSocket clients
-                            if (this.webSocketServer) {
-                                this.webSocketServer.broadcastNoteCreation(note);
-                            }
-
-                            return {
-                                content: [{ type: 'text', text: `Note created with id ${id}` }],
-                            };
-                        } catch (error: any) {
-                            console.error('Error creating note:', error);
-                            return {
-                                content: [{ type: 'text', text: `Error creating note: ${error.message}` }],
-                                isError: true,
-                            };
-                        }
-                    }
-                    case 'update-note': {
-                        const { id, content } = request.params.arguments as any;
-                        try {
-                            const result = preparedStatements.updateNote.run({ id, content });
-
-                            if (result.changes === 0) {
-                                return {
-                                    content: [{ type: 'text', text: `Note with id ${id} not found` }],
-                                    isError: true,
-                                };
-                            }
-
-                            return {
-                                content: [{ type: 'text', text: `Note updated with id ${id}` }],
-                            };
-                        } catch (error: any) {
-                            console.error('Error updating note:', error);
-                            return {
-                                content: [{ type: 'text', text: `Error updating note: ${error.message}` }],
-                                isError: true,
-                            };
-                        }
-                    }
-                    case 'delete-note': {
-                        const { id } = request.params.arguments as any;
-                        try {
-                            preparedStatements.deleteNote.run({ id });
-                            return {
-                                content: [{ type: 'text', text: `Note deleted with id ${id}` }],
-                            };
-                        } catch (error: any) {
-                            console.error('Error deleting note:', error);
-                            return {
-                                content: [{ type: 'text', text: `Error deleting note: ${error.message}` }],
-                                isError: true,
-                            };
-                        }
-                    }
-                    case 'search-notes': {
-                        const { query, tags, conversationId } = request.params.arguments as any;
-                        let results: Array<{ id: number; tags?: string[] }>;
-                        try {
-                            // Base query with all necessary joins
-                            let baseQuery = 'SELECT DISTINCT notes.* FROM notes';
-                            const params: any[] = [];
-                            const conditions: string[] = [];
-
-                            // Handle tag filtering
-                            if (tags && Array.isArray(tags) && tags.length > 0) {
-                                const tagArray = tags.map(tag => String(tag));
-                                baseQuery += ' JOIN note_tags ON notes.id = note_tags.note_id JOIN tags ON note_tags.tag_id = tags.id';
-                                conditions.push(`tags.name IN (${tagArray.map(() => '?').join(', ')})`);
-                                params.push(...tagArray);
-                            }
-
-                            // Handle text search
-                            if (query) {
-                                baseQuery += ' JOIN notes_fts ON notes.id = notes_fts.rowid';
-                                conditions.push('notes_fts MATCH ?');
-                                params.push(query);
-                            }
-
-                            // Handle conversation filter
-                            if (conversationId) {
-                                conditions.push('notes.conversation_id = ?');
-                                params.push(conversationId);
-                            }
-
-                            // Add WHERE clause if there are conditions
-                            if (conditions.length > 0) {
-                                baseQuery += ' WHERE ' + conditions.join(' AND ');
-                            }
-
-                            // Add ordering and limit
-                            baseQuery += ' ORDER BY notes.updated_at DESC LIMIT 100';
-
-                            // Execute query with type assertion
-                            results = db.prepare(baseQuery).all(...params) as Array<{ id: number; tags?: string[] }>;
-
-                            // Fetch tags for results
-                            const noteIds = results.map(note => note.id);
-                            if (noteIds.length > 0) {
-                                const tagQuery = `
-                                    SELECT note_tags.note_id, tags.name 
-                                    FROM note_tags 
-                                    JOIN tags ON note_tags.tag_id = tags.id 
-                                    WHERE note_tags.note_id IN (${noteIds.map(() => '?').join(',')})
-                                `;
-                                const tagResults = db.prepare(tagQuery).all(...noteIds) as { note_id: number; name: string }[];
-
-                                // Group tags by note
-                                const tagsByNote = new Map<number, string[]>();
-                                for (const { note_id, name } of tagResults) {
-                                    if (!tagsByNote.has(note_id)) {
-                                        tagsByNote.set(note_id, []);
-                                    }
-                                    tagsByNote.get(note_id)!.push(name);
-                                }
-
-                                // Add tags to notes
-                                for (const note of results) {
-                                    note.tags = tagsByNote.get(note.id) || [];
-                                }
-                            }
-
-                            if (!results || !results.length) {
-                                return {
-                                    content: [{ type: 'text', text: 'No notes found matching the criteria' }],
-                                };
-                            }
-
-                            return {
-                                content: [{ type: 'text', text: JSON.stringify(results, null, 2) }],
-                            };
-                        } catch (error: any) {
-                            console.error('Error searching notes:', error);
-                            return {
-                                content: [{ type: 'text', text: `Error searching notes: ${error.message}` }],
-                                isError: true,
-                            };
-                        }
-                    }
-                    case 'list-conversations': {
-                        try {
-                            const notes = db.prepare(`
-                                SELECT 
-                                    conversation_id as conversationId,
-                                    COUNT(*) as totalNotes,
-                                    MIN(created_at) as firstCreated,
-                                    MAX(updated_at) as lastUpdated
-                                FROM notes 
-                                GROUP BY conversation_id
-                                ORDER BY conversation_id
-                            `).all() as {
-                                conversationId: string;
-                                totalNotes: number;
-                                firstCreated: number;
-                                lastUpdated: number;
-                            }[];
-
-                            return {
-                                content: [{
-                                    type: 'text',
-                                    text: JSON.stringify(notes)
-                                }]
-                            };
-                        } catch (error) {
-                            console.error('Error listing conversations:', error);
-                            throw new McpError(
-                                ErrorCode.InternalError,
-                                `Failed to list conversations: ${error instanceof Error ? error.message : String(error)}`
-                            );
-                        }
-                    }
-                    case 'export-notes': {
-                        try {
-                            const params = request.params.arguments as {
-                                noteIds: number[],
-                                format?: 'md' | 'html',
-                                includeMetadata?: boolean,
-                                includeToc?: boolean
-                            };
-                            const { noteIds, format = 'md', includeMetadata = true, includeToc = false } = params;
-
-                            // Validate note IDs
-                            if (!Array.isArray(noteIds) || noteIds.length === 0) {
-                                throw new McpError(ErrorCode.InvalidParams, 'Note IDs must be a non-empty array');
-                            }
-
-                            // Fetch notes from database
-                            const notes = noteIds.map(id => {
-                                const note = db.prepare('SELECT notes.*, GROUP_CONCAT(tags.name) as tag_list FROM notes LEFT JOIN note_tags ON notes.id = note_tags.note_id LEFT JOIN tags ON note_tags.tag_id = tags.id WHERE notes.id = ? GROUP BY notes.id').get(id) as any;
-                                if (!note) {
-                                    throw new McpError(ErrorCode.MethodNotFound, `Note with ID ${id} not found`);
-                                }
-                                return {
-                                    ...note,
-                                    tags: note.tag_list ? note.tag_list.split(',') : [],
-                                };
-                            });
-
-                            // Export notes
-                            const exportedContent = notes.length === 1
-                                ? this.exportService.exportNote(notes[0], { format, includeMetadata, includeToc })
-                                : this.exportService.exportNotes(notes, { format, includeMetadata, includeToc });
-
-                            return {
-                                content: [
-                                    {
-                                        type: 'text',
-                                        text: exportedContent
-                                    }
-                                ]
-                            };
-                        } catch (error) {
-                            if (error instanceof McpError) {
-                                throw error;
-                            }
-                            console.error('Error exporting notes:', error);
-                            throw new McpError(ErrorCode.InternalError, 'Failed to export notes');
-                        }
-                    }
-                    default:
-                        throw new McpError(ErrorCode.InvalidRequest, `Unknown tool: ${request.params.name}`);
-                }
+        this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+            if (!request.params?.name) {
+                throw new McpError(ErrorCode.InvalidParams, 'Tool name is required');
             }
-        );
+
+            switch (request.params.name) {
+                case 'create-note': {
+                    const { title, content, conversationId, tags, color_hex } = request.params.arguments as any;
+                    try {
+                        const result = preparedStatements.insertNote.run({
+                            title,
+                            content,
+                            conversationId,
+                            color_hex: color_hex || null
+                        });
+                        const id = result.lastInsertRowid;
+
+                        // Broadcast note creation via WebSocket
+                        const newNote = {
+                            id,
+                            title,
+                            content,
+                            conversation_id: conversationId,
+                            color_hex,
+                            tags,
+                            created_at: Math.floor(Date.now() / 1000),
+                            updated_at: Math.floor(Date.now() / 1000)
+                        };
+                        this.webSocketServer.broadcastNoteCreation(newNote);
+
+                        // Handle tags
+                        if (tags && Array.isArray(tags)) {
+                            // Delete existing tags for the note
+                            preparedStatements.deleteNoteTags.run({ note_id: id });
+
+                            for (const tagName of tags) {
+                                let tagRecord = preparedStatements.getTagByName.get({ name: tagName }) as TagRecord;
+
+                                // If tag doesn't exist, create it
+                                if (!tagRecord) {
+                                    const result = preparedStatements.insertTag.run({ name: tagName });
+                                    tagRecord = { id: result.lastInsertRowid, name: tagName } as TagRecord;
+                                }
+
+                                // Insert note tag
+                                preparedStatements.insertNoteTag.run({ note_id: id, tag_id: tagRecord.id });
+                            }
+                        }
+
+                        return {
+                            content: [{ type: 'text', text: `Note created with id ${id}` }],
+                        };
+                    } catch (error: any) {
+                        console.error('Error creating note:', error);
+                        return {
+                            content: [{ type: 'text', text: `Error creating note: ${error.message}` }],
+                            isError: true,
+                        };
+                    }
+                }
+
+                case 'update-note': {
+                    const { id, content } = request.params.arguments as any;
+                    try {
+                        const result = preparedStatements.updateNote.run({ id, content });
+
+                        if (result.changes === 0) {
+                            return {
+                                content: [{ type: 'text', text: `Note with id ${id} not found` }],
+                                isError: true,
+                            };
+                        }
+
+                        return {
+                            content: [{ type: 'text', text: `Note updated with id ${id}` }],
+                        };
+                    } catch (error: any) {
+                        console.error('Error updating note:', error);
+                        return {
+                            content: [{ type: 'text', text: `Error updating note: ${error.message}` }],
+                            isError: true,
+                        };
+                    }
+                }
+
+                case 'delete-note': {
+                    const { id } = request.params.arguments as any;
+                    try {
+                        const note = preparedStatements.getNoteById.get({ id }) as Note;
+                        if (!note) {
+                            throw new McpError(ErrorCode.InvalidParams, `Note with id ${id} not found`);
+                        }
+
+                        const tags = preparedStatements.getTagsByNoteId.all({ note_id: id }) as { name: string }[];
+                        preparedStatements.deleteNote.run({ id });
+
+                        // Broadcast note deletion
+                        this.webSocketServer.broadcastNoteDeleted(note);
+
+                        // Update conversation count
+                        const conversationCount = this.getConversationNoteCount(note.conversation_id);
+                        this.webSocketServer.broadcastConversationUpdate({
+                            conversation_id: note.conversation_id,
+                            note_count: conversationCount
+                        });
+
+                        // Update tag counts
+                        for (const tag of tags) {
+                            const tagCount = this.getTagNoteCount(tag.name);
+                            this.webSocketServer.broadcastTagUpdate({
+                                name: tag.name,
+                                note_count: tagCount
+                            });
+                        }
+
+                        return {
+                            content: [{ type: 'text', text: `Note deleted with id ${id}` }],
+                        };
+                    } catch (error: any) {
+                        console.error('Error deleting note:', error);
+                        return {
+                            content: [{ type: 'text', text: `Error deleting note: ${error.message}` }],
+                            isError: true,
+                        };
+                    }
+                }
+
+                default:
+                    throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${request.params.name}`);
+            }
+        });
     }
 
     private async getAllNotes(): Promise<NoteWithMetadata[]> {
@@ -1427,6 +1241,26 @@ class StickyNotesServer {
     private async cleanup() {
         await this.webSocketServer.shutdown();
         await this.server.close();
+    }
+
+    // Add helper functions for note counts
+    private getConversationNoteCount(conversationId: string): number {
+        const result = db.prepare(`
+            SELECT COUNT(*) as count 
+            FROM notes 
+            WHERE conversation_id = ?
+        `).get(conversationId) as CountResult;
+        return result.count;
+    }
+
+    private getTagNoteCount(tagName: string): number {
+        const result = db.prepare(`
+            SELECT COUNT(*) as count 
+            FROM note_tags 
+            JOIN tags ON tags.id = note_tags.tag_id 
+            WHERE tags.name = ?
+        `).get(tagName) as CountResult;
+        return result.count;
     }
 }
 

@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Modified create-note tool handler to accept color_hex parameter
 - Updated insertNote prepared statement to include color_hex field
 
+### Fixed
+
+- Fixed filter reset behavior when deleting the last note in a conversation or with a specific tag
+- Improved timing of filter updates during note deletion operations
+
 ## [1.1.0] - 2024-02-15
 
 ### Added

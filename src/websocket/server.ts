@@ -8,6 +8,17 @@ interface WebSocketMessage {
     payload: any;
 }
 
+// Add new interfaces for payload types
+interface ConversationUpdate {
+    conversation_id: string;
+    note_count?: number;
+}
+
+interface TagUpdate {
+    name: string;
+    note_count?: number;
+}
+
 class NotesWebSocketServer {
     private webSocketServer: WebSocketServer | null = null;
     private connections = new Set<WebSocket>();
@@ -85,8 +96,77 @@ class NotesWebSocketServer {
         });
     }
 
+    public broadcastNoteDeleted(note: any) {
+        const message: WebSocketMessage = {
+            type: 'note_deleted',
+            payload: note
+        };
+
+        this.connections.forEach(ws => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(message));
+            }
+        });
+    }
+
     public getClients(): Set<WebSocket> {
         return this.connections;
+    }
+
+    // Method to broadcast conversation updates to all connected clients
+    public broadcastConversationUpdate(conversation: ConversationUpdate) {
+        const message: WebSocketMessage = {
+            type: 'conversation_updated',
+            payload: conversation
+        };
+
+        this.connections.forEach(ws => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(message));
+            }
+        });
+    }
+
+    // Method to broadcast new conversation creation to all connected clients
+    public broadcastConversationCreation(conversation: ConversationUpdate) {
+        const message: WebSocketMessage = {
+            type: 'conversation_created',
+            payload: conversation
+        };
+
+        this.connections.forEach(ws => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(message));
+            }
+        });
+    }
+
+    // Method to broadcast tag updates to all connected clients
+    public broadcastTagUpdate(tag: TagUpdate) {
+        const message: WebSocketMessage = {
+            type: 'tag_updated',
+            payload: tag
+        };
+
+        this.connections.forEach(ws => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(message));
+            }
+        });
+    }
+
+    // Method to broadcast new tag creation to all connected clients
+    public broadcastTagCreation(tag: TagUpdate) {
+        const message: WebSocketMessage = {
+            type: 'tag_created',
+            payload: tag
+        };
+
+        this.connections.forEach(ws => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(message));
+            }
+        });
     }
 
     async shutdown() {

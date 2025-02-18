@@ -975,47 +975,46 @@ const useConversationsData = () => {
     const [isLoading, setIsLoading] = React.useState(false);
     const [error, setError] = React.useState(null);
 
-    React.useEffect(() => {
-        const controller = new AbortController();
-        let isMounted = true;
+    const fetchConversations = React.useCallback(async () => {
+        setIsLoading(true);
+        setError(null);
 
-        const fetchData = async () => {
-            if (!isMounted) return;
-            setIsLoading(true);
-            setError(null);
+        try {
+            const response = await fetch('/api/conversations');
 
-            try {
-                const response = await fetch('/api/conversations', { signal: controller.signal });
-
-                if (!response.ok) {
-                    throw new Error('Failed to fetch conversations');
-                }
-
-                const data = await response.json();
-                if (isMounted) {
-                    setConversations(data.conversations || []);
-                }
-            } catch (error) {
-                if (!isMounted) return;
-                if (error.name === 'AbortError') return;
-                setError(error.message);
-                setConversations([]);
-            } finally {
-                if (isMounted) {
-                    setIsLoading(false);
-                }
+            if (!response.ok) {
+                throw new Error('Failed to fetch conversations');
             }
+
+            const data = await response.json();
+            setConversations(data.conversations || []);
+        } catch (error) {
+            if (error.name === 'AbortError') return;
+            setError(error.message);
+            setConversations([]);
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
+
+    React.useEffect(() => {
+        let isMounted = true;
+        const controller = new AbortController();
+
+        const loadConversations = async () => {
+            if (!isMounted) return;
+            await fetchConversations();
         };
 
-        fetchData();
+        loadConversations();
 
         return () => {
             isMounted = false;
             controller.abort();
         };
-    }, []);
+    }, [fetchConversations]);
 
-    return { conversations, isLoading, error };
+    return { conversations, isLoading, error, fetchConversations };
 };
 
 // Sidebar Component
@@ -1279,7 +1278,7 @@ const App = () => {
         updateNoteColor,
         updateNotesColor
     } = useNotesData();
-    const { conversations, isLoadingConversations } = useConversationsData();
+    const { conversations, isLoadingConversations, fetchConversations } = useConversationsData();
 
     const [isModalOpen, setIsModalOpen] = React.useState(false);
     const [selectedNote, setSelectedNote] = React.useState(null);
@@ -1308,8 +1307,37 @@ const App = () => {
                 ws.onmessage = (event) => {
                     const message = JSON.parse(event.data);
                     if (message.type === 'note_created') {
-                        // Refresh notes when a new note is created
                         fetchNotes();
+                        fetchConversations();
+                    } else if (message.type === 'note_deleted') {
+                        const deletedNote = message.payload;
+                        const remainingNotes = notes.filter(note => note.id !== deletedNote.id);
+
+                        // Check if this was the last note for the current conversation or tag
+                        const isLastInConversation = filters.selectedConversation === deletedNote.conversation_id &&
+                            !remainingNotes.some(note => note.conversation_id === deletedNote.conversation_id);
+
+                        const isLastWithTag = filters.selectedTags.length > 0 && deletedNote.tags &&
+                            filters.selectedTags.some(tag =>
+                                deletedNote.tags.includes(tag) &&
+                                !remainingNotes.some(note => note.tags && note.tags.includes(tag))
+                            );
+
+                        // If it was the last note, reset all filters
+                        if (isLastInConversation || isLastWithTag) {
+                            updateFilters({
+                                searchTerm: '',
+                                selectedTags: [],
+                                selectedConversation: '',
+                                selectedColor: null,
+                                dateRange: 'ALL_TIME',
+                                resetPage: true
+                            });
+                        }
+
+                        // Always fetch fresh data
+                        fetchNotes();
+                        fetchConversations();
                     }
                 };
 
@@ -1345,7 +1373,7 @@ const App = () => {
                 ws.close();
             }
         };
-    }, [fetchNotes]);
+    }, [fetchNotes, fetchConversations, filters, updateFilters]);
 
     const { uniqueTags, uniqueConversations } = React.useMemo(() => {
         const tagSet = new Set();
@@ -1374,14 +1402,47 @@ const App = () => {
     const handleDeleteNote = React.useCallback(async (ids) => {
         try {
             const idsArray = Array.isArray(ids) ? ids : [ids];
+
+            // For each note being deleted, check if it's the last one with its tags/conversation
+            const notesToDelete = notes.filter(note => idsArray.includes(note.id));
+            const remainingNotes = notes.filter(note => !idsArray.includes(note.id));
+
+            // Check if any of the notes being deleted are the last ones for their conversation/tags
+            const isLastInConversation = notesToDelete.some(note =>
+                filters.selectedConversation === note.conversation_id &&
+                !remainingNotes.some(n => n.conversation_id === note.conversation_id)
+            );
+
+            const isLastWithTag = filters.selectedTags.length > 0 &&
+                notesToDelete.some(note => note.tags &&
+                    filters.selectedTags.some(tag =>
+                        note.tags.includes(tag) &&
+                        !remainingNotes.some(n => n.tags && n.tags.includes(tag))
+                    )
+                );
+
+            // Delete the notes
             await Promise.all(idsArray.map(id => NotesAPI.deleteNote(id)));
+
+            // If any of the deleted notes were the last ones, reset filters
+            if (isLastInConversation || isLastWithTag) {
+                updateFilters({
+                    searchTerm: '',
+                    selectedTags: [],
+                    selectedConversation: '',
+                    selectedColor: null,
+                    dateRange: 'ALL_TIME',
+                    resetPage: true
+                });
+            }
+
             await fetchNotes();
             setDeleteConfirm({ isOpen: false, noteId: null });
             setSelectedNotes(new Set());
         } catch (error) {
             console.error('Error deleting note(s):', error);
         }
-    }, [fetchNotes]);
+    }, [fetchNotes, notes, filters, updateFilters]);
 
     const handleEditNote = React.useCallback((note) => {
         setSelectedNote(note);
