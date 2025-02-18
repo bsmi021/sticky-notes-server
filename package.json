@@ -1,6 +1,6 @@
 {
   "name": "sticky-notes-server",
-  "version": "1.0.0",
+  "version": "1.1.2",
   "description": "",
   "type": "module",
   "main": "build/index.js",

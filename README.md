@@ -2,6 +2,18 @@
 
 A MCP (Model Context Protocol) server for managing sticky notes. This project provides both an MCP interface and a fully-featured REST API to create, update, delete, search, and manage notes, tags, and sections. It also serves a React-based UI for interacting with your sticky notes.
 
+## UI Overview
+
+![Sticky Notes UI](images/2025-02-18_13-53-38.png)
+
+The Sticky Notes UI provides a modern, intuitive interface for managing your notes:
+
+- **Left Sidebar**: Filter and organize notes by conversations, tags, colors, and dates
+- **Main Content**: Grid view of notes with markdown rendering and real-time updates
+- **About Dialog**: Access server configuration information (Web URL, WebSocket URL, Database location)
+- **Theme Support**: Toggle between light and dark modes
+- **Bulk Actions**: Select multiple notes for batch operations
+
 ---
 
 ## Features
@@ -11,6 +23,10 @@ A MCP (Model Context Protocol) server for managing sticky notes. This project pr
   - Robust reconnection strategy
   - Message queuing for offline handling
   - Connection status management
+- **Server Configuration**:
+  - About modal with server details
+  - Dynamic port assignment
+  - Configuration endpoint
 - **Theme System**:
   - Light/dark mode support
   - Theme persistence
@@ -460,49 +476,6 @@ The server uses the following main tables:
 
 ---
 
-## Troubleshooting
-
-Common issues and solutions:
-
-1. **Database Location Issues**
-   - Ensure `DB_ROOT` environment variable is set correctly
-   - Check file permissions in the target directory
-
-2. **Port Conflicts**
-   - Verify ports 3000 and 8080 are available
-   - Use `WEB_UI_PORT` and `WS_PORT` to configure alternative ports
-
-3. **Performance Issues**
-   - The server uses SQLite optimizations including WAL mode
-   - Indexes are automatically created for common queries
-   - Consider regular database maintenance (VACUUM) for large datasets
-
----
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
-
----
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).
-
----
-
-## Support
-
-For issues, questions, or contributions:
-
-1. Check the [Issues](https://github.com/your-repo/sticky-notes-server/issues) section
-2. Create a new issue if needed
-3. Join our community discussions
-
 ## WebSocket Implementation
 
 ### Client-Side Integration
@@ -597,3 +570,46 @@ const exportOptions = {
 - Custom filename support
 - Markdown formatting
 - Metadata inclusion options
+
+## Troubleshooting
+
+Common issues and solutions:
+
+1. **Database Location Issues**
+   - Ensure `DB_ROOT` environment variable is set correctly
+   - Check file permissions in the target directory
+
+2. **Port Conflicts**
+   - Verify ports 3000 and 8080 are available
+   - Use `WEB_UI_PORT` and `WS_PORT` to configure alternative ports
+
+3. **Performance Issues**
+   - The server uses SQLite optimizations including WAL mode
+   - Indexes are automatically created for common queries
+   - Consider regular database maintenance (VACUUM) for large datasets
+
+---
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
+---
+
+## Support
+
+For issues, questions, or contributions:
+
+1. Check the [Issues](https://github.com/your-repo/sticky-notes-server/issues) section
+2. Create a new issue if needed
+3. Join our community discussions

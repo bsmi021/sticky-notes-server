@@ -1017,8 +1017,92 @@ const useConversationsData = () => {
     return { conversations, isLoading, error, fetchConversations };
 };
 
+// AboutModal Component
+const AboutModal = ({ isOpen, onClose }) => {
+    const [config, setConfig] = React.useState(null);
+    const [error, setError] = React.useState(null);
+    const [isLoading, setIsLoading] = React.useState(true);
+
+    React.useEffect(() => {
+        const fetchConfig = async () => {
+            try {
+                const response = await fetch('/api/config');
+                if (!response.ok) {
+                    throw new Error('Failed to fetch configuration');
+                }
+                const data = await response.json();
+                setConfig(data);
+            } catch (err) {
+                setError(err.message);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        if (isOpen) {
+            fetchConfig();
+        }
+    }, [isOpen]);
+
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
+            <div className="bg-default w-full max-w-md rounded-lg shadow-xl relative">
+                <div className="p-6">
+                    <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-xl font-bold">About Sticky Notes Server</h2>
+                        <button
+                            onClick={onClose}
+                            className="text-tertiary hover:text-primary"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
+                    </div>
+
+                    {isLoading ? (
+                        <div className="flex justify-center py-8">
+                            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-accent-primary"></div>
+                        </div>
+                    ) : error ? (
+                        <div className="text-danger py-4">
+                            Error loading configuration: {error}
+                        </div>
+                    ) : config ? (
+                        <div className="space-y-4">
+                            <div>
+                                <h3 className="font-semibold mb-1">Web Interface</h3>
+                                <p className="text-sm bg-secondary p-2 rounded">
+                                    {`http://localhost:${config.webPort}`}
+                                </p>
+                            </div>
+                            <div>
+                                <h3 className="font-semibold mb-1">WebSocket URL</h3>
+                                <p className="text-sm bg-secondary p-2 rounded">
+                                    {`ws://localhost:${config.wsPort}`}
+                                </p>
+                            </div>
+                            <div>
+                                <h3 className="font-semibold mb-1">Database</h3>
+                                <p className="text-sm bg-secondary p-2 rounded break-all">
+                                    {config.dbPath}
+                                </p>
+                            </div>
+                        </div>
+                    ) : null}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // Sidebar Component
-const Sidebar = ({ filters, onUpdateFilters, uniqueTags, uniqueConversations, noteColors }) => {
+const Sidebar = ({ filters, onUpdateFilters, uniqueTags, uniqueConversations, noteColors, onOpenAbout }) => {
+    const [isAboutModalOpen, setIsAboutModalOpen] = React.useState(false);
+
     const handleTagClick = (tag) => {
         const newTags = filters.selectedTags.includes(tag)
             ? filters.selectedTags.filter(t => t !== tag)
@@ -1055,7 +1139,20 @@ const Sidebar = ({ filters, onUpdateFilters, uniqueTags, uniqueConversations, no
                     >
                         Sticky Notes
                     </h1>
-                    <ThemeToggle />
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={onOpenAbout}
+                            className="p-2 rounded-full hover:bg-tertiary"
+                            title="About"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <line x1="12" y1="16" x2="12" y2="12"></line>
+                                <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                            </svg>
+                        </button>
+                        <ThemeToggle />
+                    </div>
                 </div>
 
                 {/* Search */}
@@ -1279,6 +1376,7 @@ const App = () => {
         updateNotesColor
     } = useNotesData();
     const { conversations, isLoadingConversations, fetchConversations } = useConversationsData();
+    const [isAboutModalOpen, setIsAboutModalOpen] = React.useState(false);
 
     const [isModalOpen, setIsModalOpen] = React.useState(false);
     const [selectedNote, setSelectedNote] = React.useState(null);
@@ -1515,6 +1613,7 @@ const App = () => {
                     uniqueTags={uniqueTags}
                     uniqueConversations={conversations}
                     noteColors={NOTE_COLORS}
+                    onOpenAbout={() => setIsAboutModalOpen(true)}
                 />
 
                 <main className="flex-1 flex flex-col h-screen">
@@ -1614,6 +1713,11 @@ const App = () => {
                         onCancel={() => setDeleteConfirm({ isOpen: false, noteId: null })}
                     />
                 </main>
+
+                <AboutModal
+                    isOpen={isAboutModalOpen}
+                    onClose={() => setIsAboutModalOpen(false)}
+                />
             </div>
         </ThemeProvider>
     );

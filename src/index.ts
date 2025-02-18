@@ -968,6 +968,20 @@ class StickyNotesServer {
             }
         });
 
+        // Add configuration endpoint
+        this.expressApp.get('/api/config', async (req: Request, res: Response) => {
+            try {
+                res.json({
+                    webPort: WEB_UI_PORT,
+                    wsPort: this.webSocketServer.getCurrentPort(),
+                    dbPath: DB_PATH
+                });
+            } catch (error) {
+                console.error('Error getting configuration:', error);
+                res.status(500).json({ error: 'Failed to get server configuration' });
+            }
+        });
+
         // Register error handler after all routes
         this.expressApp.use(errorHandler);
 
