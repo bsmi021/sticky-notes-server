@@ -45,6 +45,7 @@ interface Note {
     conversation_id: string;
     created_at: number;
     updated_at: number;
+    color_hex?: string;
     tags?: string[];
 }
 
@@ -176,8 +177,8 @@ initDatabase();
 // Prepare common statements for better performance
 const preparedStatements = {
     insertNote: db.prepare(`
-        INSERT INTO notes (title, content, conversation_id)
-        VALUES (@title, @content, @conversationId)
+        INSERT INTO notes (title, content, conversation_id, color_hex)
+        VALUES (@title, @content, @conversationId, @color_hex)
     `),
 
     searchNotes: db.prepare(`
@@ -1023,8 +1024,15 @@ class StickyNotesServer {
                         '- content: String (markdown supported)\n' +
                         '- conversationId: String (unique identifier for the conversation, you provide this)\n\n' +
                         'Optional Fields:\n' +
-                        '- tags: Array of strings\n\n' +
-                        'Example: { "title": "Meeting Notes", "content": "Discussed Q4 plans", "conversationId": "conv123", "tags": ["meeting", "planning"] }',
+                        '- tags: Array of strings\n' +
+                        '- color_hex: String (hex color code). Available colors:\n' +
+                        '  - Yellow: "#FFE999" (default)\n' +
+                        '  - Green: "#A7F3D0"\n' +
+                        '  - Blue: "#93C5FD"\n' +
+                        '  - Red: "#FCA5A5"\n' +
+                        '  - Purple: "#DDD6FE"\n' +
+                        '  - Orange: "#FFB17A"\n\n' +
+                        'Example: { "title": "Meeting Notes", "content": "Discussed Q4 plans", "conversationId": "conv123", "tags": ["meeting", "planning"], "color_hex": "#FFE999" }',
 
                     inputSchema: {
                         type: 'object',
@@ -1033,6 +1041,10 @@ class StickyNotesServer {
                             content: { type: 'string', description: 'REQUIRED. Content of the note. Supports markdown formatting.' },
                             conversationId: { type: 'string', description: 'REQUIRED. Conversation ID associated with the note.' },
                             tags: { type: 'array', items: { type: 'string' }, description: 'Optional. Array of tags to associate with the note.' },
+                            color_hex: {
+                                type: 'string',
+                                description: 'Optional. Hex color code for the note. Available colors: #FFE999 (Yellow, default), #A7F3D0 (Green), #93C5FD (Blue), #FCA5A5 (Red), #DDD6FE (Purple), #FFB17A (Orange).'
+                            }
                         },
                         required: ['title', 'content', 'conversationId'],
                     },
@@ -1139,9 +1151,14 @@ class StickyNotesServer {
 
                 switch (request.params.name) {
                     case 'create-note': {
-                        const { title, content, conversationId, tags } = request.params.arguments as any;
+                        const { title, content, conversationId, tags, color_hex } = request.params.arguments as any;
                         try {
-                            const result = preparedStatements.insertNote.run({ title, content, conversationId });
+                            const result = preparedStatements.insertNote.run({
+                                title,
+                                content,
+                                conversationId,
+                                color_hex: color_hex || null
+                            });
                             const id = result.lastInsertRowid;
 
                             // Handle tags

@@ -5,6 +5,19 @@ All notable changes to the Sticky Notes MCP Server will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2024-02-18
+
+### Added
+
+- Support for color values in note creation through MCP create-note tool
+- Color hex values are now properly stored and returned in note objects
+- Updated Note interface to include color_hex property
+
+### Changed
+
+- Modified create-note tool handler to accept color_hex parameter
+- Updated insertNote prepared statement to include color_hex field
+
 ## [1.1.0] - 2024-02-15
 
 ### Added

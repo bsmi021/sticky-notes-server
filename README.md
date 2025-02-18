@@ -201,10 +201,30 @@ Creates a new note with optional tags.
     "title": "Meeting Notes",
     "content": "Discussed Q4 plans.",
     "conversationId": "conv123",
-    "tags": ["meeting", "planning"]
+    "tags": ["meeting", "planning"],
+    "color_hex": "#FFE999"
   }
 }
 ```
+
+Required Fields:
+
+- `title`: String (1-100 chars, Generally the name of the conversation)
+- `content`: String (markdown supported)
+- `conversationId`: String (unique identifier for the conversation, you provide this)
+
+Optional Fields:
+
+- `tags`: Array of strings
+- `color_hex`: String (hex color code). Available colors:
+  - Yellow: "#FFE999" (default)
+  - Green: "#A7F3D0"
+  - Blue: "#93C5FD"
+  - Red: "#FCA5A5"
+  - Purple: "#DDD6FE"
+  - Orange: "#FFB17A"
+
+Example response: `Note created with id 123`
 
 ### update-note
 
